@@ -1,9 +1,4 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { resolvePromptLinkModelSelection } from "@t3tools/client-runtime/prompt-links";
-import {
-  isAtomCommandInterrupted,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
 import { AuthFilesystemWriteScope, type ProviderDriverKind } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -16,12 +11,11 @@ import { isElectron } from "~/env";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { useProviderEntryByEnvironmentAndInstanceId } from "~/hooks/useProviderEntryByEnvironmentAndInstanceId";
 import { cn } from "~/lib/utils";
+import { isProviderInstancePickerReady } from "~/providerInstances";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useThreadShells } from "~/state/entities";
 import { environmentPresentations } from "~/state/presentation";
-import { projectEnvironment } from "~/state/projects";
 import { useEnvironmentScope } from "~/state/session";
-import { useAtomCommand } from "~/state/use-atom-command";
 import { buildThreadRouteParams } from "~/threadRoutes";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
@@ -42,13 +36,16 @@ import {
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import {
+  AGENT_BRIDGE_DRIVER,
   buildWorkTaskPrompt,
   COMPANY_BRAIN_TEMPLATES,
   COMPANY_DIR,
   groupThreadsByAgent,
+  resolveWorkTaskModelSelection,
   type WorkTaskPreset,
   WORK_TASK_PRESETS,
 } from "./companyHub.logic";
+import { useWriteCompanyBrain } from "./useWriteCompanyBrain";
 
 const LANE_THREAD_LIMIT = 8;
 
@@ -120,15 +117,12 @@ function CompanyHubBody({ group }: { group: SidebarProjectSnapshot }) {
       appAtomRegistry
         .get(environmentPresentations.providersByEnvironmentAtom)
         .get(primary.environmentId) ?? [];
-    const resolved = resolvePromptLinkModelSelection(providers, {
-      provider: preset.provider,
-      model: null,
-    });
-    if (resolved === null) {
+    const resolved = resolveWorkTaskModelSelection(providers, preset.target);
+    if ("warning" in resolved) {
       toastManager.add({
         type: "warning",
-        title: `${preset.provider} is not set up on this machine`,
-        description: "Your default model is used. Enable it in Settings > Providers.",
+        title: resolved.warning,
+        description: "Set it up in Settings > Providers. Your default model is used for now.",
       });
       return;
     }
@@ -158,7 +152,7 @@ function CompanyHubBody({ group }: { group: SidebarProjectSnapshot }) {
           ))}
         </div>
       </section>
-      <AgentLanes group={group} />
+      <AgentLanes group={group} environmentId={primary.environmentId} />
       <CompanyBrain
         environmentId={primary.environmentId}
         workspaceRoot={primary.workspaceRoot}
@@ -170,7 +164,13 @@ function CompanyHubBody({ group }: { group: SidebarProjectSnapshot }) {
   );
 }
 
-function AgentLanes({ group }: { group: SidebarProjectSnapshot }) {
+function AgentLanes({
+  group,
+  environmentId,
+}: {
+  group: SidebarProjectSnapshot;
+  environmentId: SidebarProjectSnapshot["environmentId"];
+}) {
   const memberKeys = new Set(
     group.memberProjectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`),
   );
@@ -179,11 +179,20 @@ function AgentLanes({ group }: { group: SidebarProjectSnapshot }) {
       thread.archivedAt === null && memberKeys.has(`${thread.environmentId}:${thread.projectId}`),
   );
   const providerEntries = useProviderEntryByEnvironmentAndInstanceId();
+  const instanceIdOf = (thread: (typeof threads)[number]) =>
+    thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId;
   const entryOf = (thread: (typeof threads)[number]) =>
-    providerEntries.get(
-      `${thread.environmentId}:${thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId}`,
-    );
-  const lanes = groupThreadsByAgent(threads, (thread) => entryOf(thread)?.driverKind ?? "unknown");
+    providerEntries.get(`${thread.environmentId}:${instanceIdOf(thread)}`);
+  const lanes = groupThreadsByAgent(threads, (thread) => ({
+    driverKind: entryOf(thread)?.driverKind ?? "unknown",
+    instanceId: instanceIdOf(thread),
+  }));
+  const bridgeEntries = [...providerEntries].flatMap(([key, entry]) =>
+    key.startsWith(`${environmentId}:`) && entry.driverKind === AGENT_BRIDGE_DRIVER ? [entry] : [],
+  );
+  const bridgeReady = bridgeEntries.some(isProviderInstancePickerReady);
+  const bridgeDocsUrl = bridgeEntries.find((entry) => entry.snapshot.setup?.documentationUrl)
+    ?.snapshot.setup?.documentationUrl;
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const navigate = useNavigate();
 
@@ -192,6 +201,31 @@ function AgentLanes({ group }: { group: SidebarProjectSnapshot }) {
       <h2 id="company-hub-agents" className="text-sm font-medium text-muted-foreground">
         Agents
       </h2>
+      {bridgeReady ? null : (
+        <p className="text-sm text-muted-foreground">
+          Connect Muse or Grok Bot in{" "}
+          <Link
+            to="/settings/providers"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Settings &gt; Providers
+          </Link>{" "}
+          to run outbound, email, social, and support work.
+          {bridgeDocsUrl ? (
+            <>
+              {" "}
+              <a
+                href={bridgeDocsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                Setup guide
+              </a>
+            </>
+          ) : null}
+        </p>
+      )}
       {lanes.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           No threads yet. Start work above, or start a thread from the sidebar.
@@ -200,11 +234,11 @@ function AgentLanes({ group }: { group: SidebarProjectSnapshot }) {
         <div className="grid gap-3 md:grid-cols-2">
           {lanes.map((lane) => {
             const entry = lane.threads[0] ? entryOf(lane.threads[0]) : undefined;
-            const showAll = expanded.has(lane.driverKind);
+            const showAll = expanded.has(lane.key);
             const shown = showAll ? lane.threads : lane.threads.slice(0, LANE_THREAD_LIMIT);
             return (
               <div
-                key={lane.driverKind}
+                key={lane.key}
                 className="flex min-w-0 flex-col gap-2 rounded-xl border border-border/60 bg-card p-3"
               >
                 <div className="flex items-center gap-2">
@@ -216,9 +250,7 @@ function AgentLanes({ group }: { group: SidebarProjectSnapshot }) {
                       className="size-4"
                     />
                   ) : null}
-                  <span className="text-sm font-medium">
-                    {entry?.displayName ?? lane.driverKind}
-                  </span>
+                  <span className="text-sm font-medium">{entry?.displayName ?? lane.key}</span>
                   <span className="text-xs text-muted-foreground">
                     {lane.kind === "work" ? "Work" : "Code"} · {lane.threads.length}
                   </span>
@@ -254,8 +286,8 @@ function AgentLanes({ group }: { group: SidebarProjectSnapshot }) {
                     onClick={() =>
                       setExpanded((previous) => {
                         const next = new Set(previous);
-                        if (showAll) next.delete(lane.driverKind);
-                        else next.add(lane.driverKind);
+                        if (showAll) next.delete(lane.key);
+                        else next.add(lane.key);
                         return next;
                       })
                     }
@@ -280,30 +312,17 @@ function CompanyBrain(props: {
   onCreated: () => void;
 }) {
   const canWriteFiles = useEnvironmentScope(props.environmentId, AuthFilesystemWriteScope);
-  const writeProjectFile = useAtomCommand(projectEnvironment.writeFile, { reportFailure: false });
+  const writeCompanyBrain = useWriteCompanyBrain();
   const [creating, setCreating] = useState(false);
 
   const createBrain = async () => {
     setCreating(true);
-    for (const template of COMPANY_BRAIN_TEMPLATES) {
-      const result = await writeProjectFile({
-        environmentId: props.environmentId,
-        input: { cwd: props.workspaceRoot, ...template },
-      });
-      if (result._tag === "Success") continue;
-      setCreating(false);
-      if (!isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add({
-          type: "error",
-          title: "Could not create the company brain",
-          description: error instanceof Error ? error.message : undefined,
-        });
-      }
-      return;
-    }
+    const written = await writeCompanyBrain({
+      environmentId: props.environmentId,
+      workspaceRoot: props.workspaceRoot,
+    });
     setCreating(false);
-    props.onCreated();
+    if (written) props.onCreated();
   };
 
   return (
