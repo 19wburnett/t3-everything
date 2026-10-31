@@ -49,8 +49,10 @@ const BRIDGE_AGENTS = [
   { instanceId: "grokBot", displayName: "Grok Bot" },
 ] as const;
 
+export type BridgeAgent = (typeof BRIDGE_AGENTS)[number];
+
 export type WorkTaskTarget =
-  | { readonly kind: "bridge"; readonly agent: (typeof BRIDGE_AGENTS)[number] }
+  | { readonly kind: "bridge"; readonly agent: BridgeAgent }
   | { readonly kind: "coding"; readonly provider: "claude" | "codex" };
 
 const MUSE: WorkTaskTarget = { kind: "bridge", agent: BRIDGE_AGENTS[0] };
@@ -143,6 +145,14 @@ export function resolveWorkTaskModelSelection(
   )
     ? { selection: { instanceId: ProviderInstanceId.make(instanceId), model: "default" } }
     : { warning: `${displayName} isn't connected on this machine.` };
+}
+
+export function connectedBridgeAgents(
+  providers: Parameters<typeof resolvePromptLinkModelSelection>[0],
+): ReadonlyArray<BridgeAgent> {
+  return BRIDGE_AGENTS.filter(
+    (agent) => "selection" in resolveWorkTaskModelSelection(providers, { kind: "bridge", agent }),
+  );
 }
 
 export const COMPANY_BRAIN_TEMPLATES: ReadonlyArray<{

@@ -1,5 +1,11 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { AuthFilesystemWriteScope, type ProviderDriverKind } from "@t3tools/contracts";
+import {
+  AuthFilesystemReadScope,
+  AuthFilesystemWriteScope,
+  type CompanyDraft,
+  type ProjectId,
+  type ProviderDriverKind,
+} from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AsyncResult } from "effect/reactivity";
@@ -13,6 +19,7 @@ import { useProviderEntryByEnvironmentAndInstanceId } from "~/hooks/useProviderE
 import { cn } from "~/lib/utils";
 import { isProviderInstancePickerReady } from "~/providerInstances";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
+import { companyChannelEnvironment } from "~/state/companyChannels";
 import { useThreadShells } from "~/state/entities";
 import { environmentPresentations } from "~/state/presentation";
 import { useEnvironmentScope } from "~/state/session";
@@ -35,16 +42,22 @@ import {
 } from "../WorkspaceBreadcrumb";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
+import { channelFailure } from "./companyChannels.logic";
+import { CompanyChannelsSection } from "./CompanyChannelsSection";
 import {
   AGENT_BRIDGE_DRIVER,
+  type BridgeAgent,
   buildWorkTaskPrompt,
   COMPANY_BRAIN_TEMPLATES,
   COMPANY_DIR,
+  connectedBridgeAgents,
   groupThreadsByAgent,
   resolveWorkTaskModelSelection,
-  type WorkTaskPreset,
+  type WorkTaskTarget,
   WORK_TASK_PRESETS,
 } from "./companyHub.logic";
+import { CompanyInboxSection } from "./CompanyInboxSection";
+import { CompanyOutboxSection } from "./CompanyOutboxSection";
 import { useWriteCompanyBrain } from "./useWriteCompanyBrain";
 
 const LANE_THREAD_LIMIT = 8;
@@ -104,10 +117,11 @@ function CompanyHubBody({ group }: { group: SidebarProjectSnapshot }) {
   const brain = AsyncResult.getOrElse(brainResult, () => null);
   const hasCompanyBrain = brain !== null && brain.exists !== false;
 
+  const canReadChannels = useEnvironmentScope(primary.environmentId, AuthFilesystemReadScope);
   const handleNewThread = useNewThreadHandler();
-  const startTask = async (preset: WorkTaskPreset) => {
+  const startThread = async (prompt: string, target: WorkTaskTarget) => {
     const opened = await handleNewThread(scopeProjectRef(primary.environmentId, primary.id), {
-      prompt: buildWorkTaskPrompt(preset, hasCompanyBrain),
+      prompt,
     }).catch(() => null);
     if (opened === null) {
       toastManager.add({ type: "error", title: "Could not start a new thread" });
@@ -117,7 +131,7 @@ function CompanyHubBody({ group }: { group: SidebarProjectSnapshot }) {
       appAtomRegistry
         .get(environmentPresentations.providersByEnvironmentAtom)
         .get(primary.environmentId) ?? [];
-    const resolved = resolveWorkTaskModelSelection(providers, preset.target);
+    const resolved = resolveWorkTaskModelSelection(providers, target);
     if ("warning" in resolved) {
       toastManager.add({
         type: "warning",
@@ -143,7 +157,9 @@ function CompanyHubBody({ group }: { group: SidebarProjectSnapshot }) {
             <button
               key={preset.id}
               type="button"
-              onClick={() => void startTask(preset)}
+              onClick={() =>
+                void startThread(buildWorkTaskPrompt(preset, hasCompanyBrain), preset.target)
+              }
               className="flex cursor-pointer flex-col items-start gap-1 rounded-lg border border-border/70 bg-background/70 px-3 py-2.5 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
               <span className="text-sm font-medium">{preset.label}</span>
@@ -153,6 +169,13 @@ function CompanyHubBody({ group }: { group: SidebarProjectSnapshot }) {
         </div>
       </section>
       <AgentLanes group={group} environmentId={primary.environmentId} />
+      {canReadChannels ? (
+        <CompanyChannelSections
+          environmentId={primary.environmentId}
+          projectId={primary.id}
+          onAskAgent={(agent, prompt) => void startThread(prompt, { kind: "bridge", agent })}
+        />
+      ) : null}
       <CompanyBrain
         environmentId={primary.environmentId}
         workspaceRoot={primary.workspaceRoot}
@@ -161,6 +184,52 @@ function CompanyHubBody({ group }: { group: SidebarProjectSnapshot }) {
         onCreated={() => appAtomRegistry.refresh(brainAtom)}
       />
     </WorkspacePageContainer>
+  );
+}
+
+function CompanyChannelSections(props: {
+  readonly environmentId: SidebarProjectSnapshot["environmentId"];
+  readonly projectId: ProjectId;
+  readonly onAskAgent: (agent: BridgeAgent, prompt: string) => void;
+}) {
+  const target = { environmentId: props.environmentId, input: { projectId: props.projectId } };
+  const accountsResult = useAtomValue(companyChannelEnvironment.accounts(target));
+  const outboxResult = useAtomValue(companyChannelEnvironment.outbox(target));
+  const providers = useAtomValue(environmentPresentations.providersByEnvironmentAtom).get(
+    props.environmentId,
+  );
+  const [editingDraft, setEditingDraft] = useState<CompanyDraft | null>(null);
+  const accounts = AsyncResult.getOrElse(accountsResult, () => null)?.accounts ?? [];
+  const failureOf = (result: typeof accountsResult | typeof outboxResult) =>
+    result._tag === "Failure" ? channelFailure(result.cause).message : null;
+
+  return (
+    <>
+      <CompanyInboxSection
+        environmentId={props.environmentId}
+        projectId={props.projectId}
+        accounts={accounts}
+        agents={connectedBridgeAgents(providers ?? [])}
+        onAskAgent={props.onAskAgent}
+        onDraftCreated={setEditingDraft}
+      />
+      <CompanyOutboxSection
+        environmentId={props.environmentId}
+        projectId={props.projectId}
+        accounts={accounts}
+        outbox={AsyncResult.getOrElse(outboxResult, () => null)}
+        error={failureOf(outboxResult)}
+        editing={editingDraft}
+        onEdit={setEditingDraft}
+      />
+      <CompanyChannelsSection
+        environmentId={props.environmentId}
+        projectId={props.projectId}
+        accounts={accounts}
+        loading={accountsResult._tag === "Initial"}
+        error={failureOf(accountsResult)}
+      />
+    </>
   );
 }
 
