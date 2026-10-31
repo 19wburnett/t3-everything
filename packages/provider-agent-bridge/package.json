@@ -1,0 +1,38 @@
+{
+  "name": "@t3tools/provider-agent-bridge",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./client": {
+      "types": "./src/client.ts",
+      "import": "./src/client.ts"
+    },
+    "./settings": {
+      "types": "./src/settings.ts",
+      "import": "./src/settings.ts"
+    },
+    "./server": {
+      "types": "./src/server.ts",
+      "import": "./src/server.ts"
+    },
+    "./server/AgentBridgeHub": {
+      "types": "./src/server/AgentBridgeHub.ts",
+      "import": "./src/server/AgentBridgeHub.ts"
+    },
+    "./testing": {
+      "types": "./src/testing.ts",
+      "import": "./src/testing.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@t3tools/contracts": "workspace:*",
+    "@t3tools/provider-core": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:"
+  }
+}

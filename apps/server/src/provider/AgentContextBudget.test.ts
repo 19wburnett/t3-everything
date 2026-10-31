@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { ProviderInstanceId } from "@t3tools/contracts";
+import { AgentBridgeHub } from "@t3tools/provider-agent-bridge/server/AgentBridgeHub";
 import { McpProviderSessions } from "@t3tools/provider-core/server/McpProviderSessions";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -39,13 +40,16 @@ import { ServerSettingsService } from "../serverSettings.ts";
 import { SourceControlRepositoryService } from "../sourceControl/SourceControlRepositoryService.ts";
 import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
 import { VcsStatusBroadcaster } from "../vcs/VcsStatusBroadcaster.ts";
+import { WorkspaceFileSystem } from "../workspace/WorkspaceFileSystem.ts";
 import { buildCodexAdditionalContext } from "./CodexDeveloperInstructions.ts";
 import { DocumentText } from "./DocumentText.ts";
+import { ProviderInstanceRegistry } from "./ProviderInstanceRegistry.ts";
 import { ProviderRegistry } from "./ProviderRegistry.ts";
 import budget from "./agentContextBudget.json" with { type: "json" };
 
 // Registration only stores tool definitions, so the handlers' services are never called.
 const toolHandlerServices = Layer.mergeAll(
+  Layer.mock(AgentBridgeHub)({}),
   Layer.mock(DeviceService)({}),
   Layer.mock(DocumentText)({}),
   Layer.mock(GitVcsDriver)({}),
@@ -63,6 +67,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(ProjectService)({}),
   Layer.mock(ProjectSetupScriptRunner)({}),
   Layer.mock(ProviderAdapterRegistryV2)({}),
+  Layer.mock(ProviderInstanceRegistry)({}),
   Layer.mock(ProviderRegistry)({}),
   Layer.mock(PullRequestReviewGuideService)({}),
   Layer.mock(RemoteDelegation)({}),
@@ -77,6 +82,7 @@ const toolHandlerServices = Layer.mergeAll(
   Layer.mock(ThreadManagementService)({}),
   Layer.mock(ThreadSearch)({}),
   Layer.mock(VcsStatusBroadcaster)({}),
+  Layer.mock(WorkspaceFileSystem)({}),
 ).pipe(Layer.provideMerge(NodeServices.layer));
 
 const utf8Bytes = (text: string) => Buffer.byteLength(text, "utf8");

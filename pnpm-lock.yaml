@@ -856,6 +856,9 @@ importers:
       '@t3tools/provider-acp-registry':
         specifier: workspace:*
         version: link:../../packages/provider-acp-registry
+      '@t3tools/provider-agent-bridge':
+        specifier: workspace:*
+        version: link:../../packages/provider-agent-bridge
       '@t3tools/provider-core':
         specifier: workspace:*
         version: link:../../packages/provider-core
@@ -1483,6 +1486,9 @@ importers:
       '@t3tools/provider-acp-registry':
         specifier: workspace:*
         version: link:../provider-acp-registry
+      '@t3tools/provider-agent-bridge':
+        specifier: workspace:*
+        version: link:../provider-agent-bridge
       '@t3tools/provider-core':
         specifier: workspace:*
         version: link:../provider-core
@@ -1663,6 +1669,22 @@ importers:
       vite-plus:
         specifier: 1.4.0
         version: 1.4.0(@astrojs/compiler-rs@0.5.1)(@tsc-rs/typescript@0.8.0)(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/ui@5.0.5)(@volar/typescript@2.4.28(@tsc-rs/typescript@0.8.0))(bufferutil@4.1.0)(esbuild@0.28.2)(jiti@2.7.0)(jsdom@30.1.0(@noble/hashes@1.8.0))(playwright@1.60.0)(terser@5.48.0)(unrun@0.2.39)(utf-8-validate@6.0.6)(yaml@2.9.0)
+
+  packages/provider-agent-bridge:
+    dependencies:
+      '@t3tools/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@t3tools/provider-core':
+        specifier: workspace:*
+        version: link:../provider-core
+      effect:
+        specifier: 4.0.5
+        version: 4.0.5
+    devDependencies:
+      '@types/node':
+        specifier: 24.12.4
+        version: 24.12.4
 
   packages/provider-core:
     dependencies:

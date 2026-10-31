@@ -53,6 +53,7 @@ import * as ResetCreditCoordinator from "./provider/resetCreditCoordinator.ts";
 import * as EventNdjsonLogger from "./provider/EventNdjsonLogger.ts";
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as AgentBridgeHub from "@t3tools/provider-agent-bridge/server/AgentBridgeHub";
 import * as OpenCodeRuntime from "@t3tools/provider-opencode/server/OpenCodeRuntime";
 import * as OpenCodeServerLedger from "@t3tools/provider-opencode/server/OpenCodeServerLedger";
 import * as ProviderHostLive from "./provider/ProviderHostLive.ts";
@@ -662,6 +663,7 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
       ResetCreditCoordinator.layer,
       ProviderLatestVersions.layer,
       McpProviderSessions.layer,
+      AgentBridgeHub.layer,
     ),
   ),
   Layer.provideMerge(

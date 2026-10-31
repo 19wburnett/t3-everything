@@ -86,6 +86,36 @@ Add the environment as a custom MCP app in ChatGPT's apps settings:
    need a client ID or secret.
 4. Create the app, then approve the sign-in page that opens.
 
+## Muse and Grok Bot as threads
+
+Meta's Muse and xAI's Grok Bot run in the cloud and cannot be called by other
+apps, so T3 Code lets them pick up work instead. **Muse** and **Grok Bot** are
+listed as providers. Start a thread on one and send it a message; the thread
+stays running until the bot checks in, does the work, and replies. Until a bot
+has checked in, its provider shows that it is waiting for it to connect.
+
+1. Give the environment an internet address with T3 Connect (`t3 up`; see
+   [Remote access](./remote-access.md)) and copy its MCP URL as described
+   above.
+2. Connect the bot over OAuth. In the Grok app, add a custom connector with the
+   MCP URL. Muse connects to the MCP URL as a remote MCP server.
+3. Approve the sign-in with **Supervised** or higher. A read-only bot cannot
+   collect or answer messages.
+4. Give the bot a routine, for example: "Every 15 minutes, call
+   `t3_bridge_inbox` with agent `museBot`. Do each task. Reply with
+   `t3_bridge_reply`, and set done when finished." Use `grokBot` for Grok Bot.
+
+Each message reaches the bot once, together with the project's
+`company/BRAIN.md` and `company/CHANNELS.md` when they exist. Messages you send
+while a thread is running join its open task. When a bot needs your approval,
+it asks in a reply and ends the task; your answer starts a new one. Stop ends
+the task, and the bot's later replies to it are refused.
+
+Open tasks do not survive a restart of the environment: restarting stops
+running bot threads, so send the message again. To bridge another hosted
+agent, add an **Agent bridge** provider in **Settings → Providers → Add
+provider**. A bot that names an unknown agent is told the valid ids.
+
 ## Other agents and bots
 
 Any agent that supports remote MCP servers over HTTP with OAuth can connect. Give
