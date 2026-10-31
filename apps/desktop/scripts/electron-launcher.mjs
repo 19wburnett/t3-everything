@@ -14,10 +14,11 @@ const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
 const APP_DISPLAY_NAME = isDevelopment ? "T3 Everything (Dev)" : "T3 Everything (Beta)";
+// Mirrors packages/shared/src/appIdentity.ts; this standalone launcher cannot import TypeScript.
 const APP_BUNDLE_ID = isDevelopment
-  ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
-  : "com.t3tools.t3code";
-const APP_PROTOCOL_SCHEMES = isDevelopment ? ["t3code-dev"] : ["t3code"];
+  ? `com.t3everything.desktop.dev.${devBundleIdSuffix || "local"}`
+  : "com.t3everything.desktop";
+const APP_PROTOCOL_SCHEMES = isDevelopment ? ["t3everything-dev"] : ["t3everything"];
 const LAUNCHER_VERSION = 20;
 const developmentMacIconPngPath = NodePath.join(
   repoRoot,

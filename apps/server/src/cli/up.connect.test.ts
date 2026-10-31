@@ -77,7 +77,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NetService.layer))("t3 up with T3 Co
         supported: true,
         installed: true,
         current: true,
-        unitPath: "/home/me/.config/systemd/user/t3code.service",
+        unitPath: "/home/me/.config/systemd/user/t3everything.service",
         logPath: "/home/me/.t3/userdata/logs/boot-service.log",
       };
       vi.spyOn(BootService, "layer").mockReturnValue(
