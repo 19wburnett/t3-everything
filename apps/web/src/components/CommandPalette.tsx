@@ -53,6 +53,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
   BugIcon,
+  BuildingIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -1619,6 +1620,20 @@ function OpenCommandPaletteDialog(props: {
   }
   const contextualProjectGroup = currentProjectGroup ?? projectGroups[0] ?? null;
   if (contextualProjectGroup) {
+    actionItems.push({
+      kind: "action",
+      value: "action:company-hub",
+      searchTerms: ["company", "hub", "brain", "work", "agents", "muse", "grok", "outbound"],
+      title: "Company hub",
+      description: contextualProjectGroup.displayName,
+      icon: <BuildingIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({
+          to: "/company/$projectKey",
+          params: { projectKey: contextualProjectGroup.projectKey },
+        });
+      },
+    });
     actionItems.push({
       kind: "action",
       value: "action:project-settings",

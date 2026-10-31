@@ -1214,6 +1214,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
       });
     },
   );
+  const openCompanyHub = useStableCallback((projectGroup: SidebarProjectSnapshot) => {
+    if (isMobile) setOpenMobile(false);
+    void router.navigate({
+      to: "/company/$projectKey",
+      params: { projectKey: projectGroup.projectKey },
+    });
+  });
   const {
     canPinProjectGroup: canPinProject,
     setProjectGroupPinned,
@@ -1244,6 +1251,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           api.contextMenu.show(
             [
               { id: "new-thread", label: "New thread" },
+              { id: "company-hub", label: "Company hub" },
               { id: "copy-path", label: "Copy path" },
               ...(canPinProject(group)
                 ? [
@@ -1261,6 +1269,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         switch (clicked.value) {
           case "new-thread":
             startThreadInProjectFolder(group);
+            return;
+          case "company-hub":
+            openCompanyHub(group);
             return;
           case "copy-path":
             copyPathToClipboard(group.workspaceRoot, { path: group.workspaceRoot });
@@ -3411,6 +3422,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                 hiddenThreads={folder.hiddenThreads}
                                 onToggle={toggleProjectFolder}
                                 onNewThread={startThreadInProjectFolder}
+                                onOpenCompanyHub={openCompanyHub}
                                 onContextMenu={handleProjectFolderContextMenu}
                               />,
                             );
