@@ -109,6 +109,11 @@ describe("BrowserImport.importCookies", () => {
           .pipe(Effect.flip);
 
         assert.equal(error.reason, "browserRunning");
+
+        const passwordError = yield* importer
+          .readPasswords({ sourceId: "helium", sourceProfileDirectory: "Default" })
+          .pipe(Effect.flip);
+        assert.equal(passwordError.reason, "browserRunning");
       }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 });

@@ -1,7 +1,9 @@
 import type {
+  BrowserCredentialImportEntry,
   BrowserImportInput,
   BrowserImportResult,
   BrowserImportSource,
+  BrowserImportSourceId,
   BrowserImportUnavailableReason,
 } from "@t3tools/contracts";
 import { BrowserImportFailureReason } from "@t3tools/contracts";
@@ -20,7 +22,9 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as BrowserSession from "../BrowserSession.ts";
 import { ChromiumCookieReadError, readChromiumCookies } from "./ChromiumCookies.ts";
 import type { CookieReadResult } from "./CookieDatabase.ts";
+import { readChromiumPasswords } from "./ChromiumPasswords.ts";
 import { FirefoxCookieReadError, readFirefoxCookies } from "./FirefoxCookies.ts";
+import { readFirefoxPasswords } from "./FirefoxPasswords.ts";
 import { readSafariCookies, safariAccessDenied, SafariCookieReadError } from "./SafariCookies.ts";
 import {
   BROWSER_IMPORT_SOURCES,
@@ -28,6 +32,7 @@ import {
   isSourceInstalled,
   isSourceRunning,
   listSourceProfiles,
+  resolveProfilePath,
   sourcePathContext,
   type BrowserImportPathContext,
   type BrowserImportSourceDefinition,
@@ -43,7 +48,7 @@ export class BrowserImportFailedError extends Schema.TaggedError<BrowserImportFa
 ) {
   // IPC preserves only the message; the renderer needs its reason token for user-facing copy.
   override get message(): string {
-    return `Importing cookies from ${this.sourceId} failed: ${this.reason}.`;
+    return `Importing from ${this.sourceId} failed: ${this.reason}.`;
   }
 }
 
@@ -70,6 +75,11 @@ export class BrowserImport extends Context.Service<
       readonly persistent: boolean;
       readonly namespace?: BrowserSession.BrowserSessionPartitionNamespace;
     }) => Effect.Effect<BrowserImportResult, BrowserImportFailedError>;
+    /** Decrypted values must never be logged or attached to errors. */
+    readonly readPasswords: (input: {
+      readonly sourceId: BrowserImportSourceId;
+      readonly sourceProfileDirectory: string;
+    }) => Effect.Effect<ReadonlyArray<BrowserCredentialImportEntry>, BrowserImportFailedError>;
   }
 >()("@t3tools/desktop/preview/BrowserImport/BrowserImport") {}
 
@@ -171,20 +181,14 @@ export const make = Effect.gen(function* BrowserImportMake() {
     }),
   ).pipe(Effect.provide(platformServices));
 
-  const importCookies = Effect.fn("BrowserImport.importCookies")(function* (input: {
-    readonly input: BrowserImportInput;
-    readonly scope: string;
-    readonly persistent: boolean;
-    readonly namespace?: BrowserSession.BrowserSessionPartitionNamespace;
-  }) {
-    const definition = BROWSER_IMPORT_SOURCES.find(
-      (candidate) => candidate.id === input.input.sourceId,
-    );
+  // IPC profile paths must match the source's listing to prevent traversal outside browser user-data.
+  const resolveRequest = Effect.fn("BrowserImport.resolveRequest")(function* (
+    sourceId: BrowserImportSourceId,
+    sourceProfileDirectory: string,
+  ) {
+    const definition = BROWSER_IMPORT_SOURCES.find((candidate) => candidate.id === sourceId);
     if (!definition) {
-      return yield* new BrowserImportFailedError({
-        sourceId: input.input.sourceId,
-        reason: "unknownSource",
-      });
+      return yield* new BrowserImportFailedError({ sourceId, reason: "unknownSource" });
     }
 
     const blocked = yield* unavailableReason(definition, pathContext).pipe(
@@ -196,18 +200,17 @@ export const make = Effect.gen(function* BrowserImportMake() {
 
     if (platform === "darwin" && definition.engine === "chromium") {
       // macOS attributes Keychain prompts and ACL grants to the executable, which differs in dev and packaged builds.
-      yield* Effect.logInfo("Reading browser cookie key from the keychain", {
+      yield* Effect.logInfo("Reading browser key from the keychain", {
         sourceId: definition.id,
         executablePath,
       });
     }
 
-    // IPC profile paths must match the source's listing to prevent traversal outside browser user-data.
     const sourceProfiles = yield* listSourceProfiles(definition, pathContext).pipe(
       Effect.provide(platformServices),
     );
     const requestedProfile = sourceProfiles.find(
-      (profile) => profile.directory === input.input.sourceProfileDirectory,
+      (profile) => profile.directory === sourceProfileDirectory,
     );
     if (requestedProfile === undefined) {
       return yield* new BrowserImportFailedError({
@@ -215,6 +218,19 @@ export const make = Effect.gen(function* BrowserImportMake() {
         reason: "unknownSourceProfile",
       });
     }
+    return { definition, requestedProfile };
+  });
+
+  const importCookies = Effect.fn("BrowserImport.importCookies")(function* (input: {
+    readonly input: BrowserImportInput;
+    readonly scope: string;
+    readonly persistent: boolean;
+    readonly namespace?: BrowserSession.BrowserSessionPartitionNamespace;
+  }) {
+    const { definition, requestedProfile } = yield* resolveRequest(
+      input.input.sourceId,
+      input.input.sourceProfileDirectory,
+    );
 
     // Re-resolve listed paths because Chromium jars may be under Network/.
     const databasePath = yield* resolveCookieDatabase(
@@ -289,7 +305,50 @@ export const make = Effect.gen(function* BrowserImportMake() {
     return yield* writeCookies(session, result);
   });
 
-  return BrowserImport.of({ listSources, importCookies });
+  const readPasswords = Effect.fn("BrowserImport.readPasswords")(function* (input: {
+    readonly sourceId: BrowserImportSourceId;
+    readonly sourceProfileDirectory: string;
+  }) {
+    // Safari keeps saved passwords in the Keychain, which no file read can reach.
+    if (input.sourceId === "safari") {
+      return yield* new BrowserImportFailedError({
+        sourceId: input.sourceId,
+        reason: "unsupportedPlatform",
+      });
+    }
+    const { definition, requestedProfile } = yield* resolveRequest(
+      input.sourceId,
+      input.sourceProfileDirectory,
+    );
+    const profilePath = resolveProfilePath(definition, pathContext, requestedProfile.directory);
+    if (profilePath === undefined) {
+      return yield* new BrowserImportFailedError({ sourceId: definition.id, reason: "readFailed" });
+    }
+    const userDataDirectory = definition.userDataDirectory(pathContext);
+    const read =
+      definition.engine === "firefox"
+        ? readFirefoxPasswords(profilePath)
+        : readChromiumPasswords({
+            loginDatabasePath: pathContext.path.join(profilePath, "Login Data"),
+            keychainService: definition.keychainService,
+            keychainAccount: definition.keychainAccount,
+            linuxSecretApplication: definition.linuxSecretApplication,
+            ...(platform === "win32" && userDataDirectory !== undefined
+              ? { windowsLocalStatePath: pathContext.path.join(userDataDirectory, "Local State") }
+              : {}),
+            platform,
+          });
+    return yield* read.pipe(
+      Effect.scoped,
+      Effect.provide(platformServices),
+      Effect.mapError(
+        (cause) =>
+          new BrowserImportFailedError({ sourceId: definition.id, reason: cause.reason, cause }),
+      ),
+    );
+  });
+
+  return BrowserImport.of({ listSources, importCookies, readPasswords });
 });
 
 export const layer = Layer.effect(BrowserImport, make);

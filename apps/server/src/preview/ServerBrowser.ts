@@ -20,6 +20,8 @@ import {
   type PreviewAutomationConsoleEntry,
   type PreviewAutomationDragInput,
   type PreviewAutomationEvaluateInput,
+  type PreviewAutomationFillCredentialInput,
+  BrowserCredentialError,
   type PreviewAutomationHoverInput,
   type PreviewAutomationNavigateInput,
   type PreviewAutomationNetworkEntry,
@@ -73,6 +75,7 @@ import type {
 } from "playwright-core";
 
 import { PENDING_ATTACHMENT_THREAD_SEGMENT } from "../attachmentStore.ts";
+import * as BrowserCredentials from "../browserCredentials/BrowserCredentials.ts";
 import * as ServerConfig from "../config.ts";
 import { resolveRootCliCommand } from "../cli/invocation.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -333,6 +336,8 @@ interface ServerTab {
   recordingStart: Promise<Recording> | null;
   captureLock: Promise<void>;
   capturing: number;
+  /** Main-frame documents (CDP loader ids) holding a filled saved password; `evaluate` is refused there. */
+  readonly passwordDocuments: Set<string>;
 }
 
 interface ServerDownload {
@@ -465,6 +470,7 @@ const make = Effect.gen(function* () {
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const previewBrowser = yield* PreviewBrowser.PreviewBrowser;
   const desktopChannel = yield* DesktopBrowserChannel.DesktopBrowserChannel;
+  const credentials = yield* BrowserCredentials.BrowserCredentials;
   const agentTurns = yield* (yield* PreviewAgentActivity.PreviewAgentActivity).changes;
   const runFork = Effect.runForkWith(yield* Effect.context<never>());
   const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
@@ -857,6 +863,7 @@ const make = Effect.gen(function* () {
       abortedNavigation: null,
       captureLock: Promise.resolve(),
       capturing: 0,
+      passwordDocuments: new Set(),
     };
     if (!desktop) {
       await page.setViewportSize(fixedViewportSize(tab.setting) ?? UNATTACHED_FILL_VIEWPORT);
@@ -1862,6 +1869,56 @@ const make = Effect.gen(function* () {
     );
   };
 
+  const mainDocument = async (tab: ServerTab) =>
+    (await tab.cdp.send("Page.getFrameTree")).frameTree.frame.loaderId;
+
+  // Fails closed: a page whose document can't be identified may still hold the password.
+  const holdsFilledPassword = async (tab: ServerTab) => {
+    if (tab.passwordDocuments.size === 0) return false;
+    const current = await mainDocument(tab).catch(() => undefined);
+    return current === undefined || tab.passwordDocuments.has(current);
+  };
+
+  const usesSelectorLocator = (input: unknown) =>
+    typeof input === "object" &&
+    input !== null &&
+    (["selector", "locator", "source", "target"] as const).some((key) => {
+      const value = (input as Record<string, unknown>)[key];
+      return typeof value === "string" && !value.startsWith("aria-ref=");
+    });
+
+  const credentialValue = <A>(effect: Effect.Effect<A, BrowserCredentialError>) =>
+    runPromise(Effect.result(effect)).then((result) => {
+      if (result._tag === "Success") return result.success;
+      throw new ServerBrowserPage.ServerBrowserOperationError(
+        "PreviewAutomationExecutionError",
+        result.failure.message,
+      );
+    });
+
+  const fillCredential = async (tab: ServerTab, input: PreviewAutomationFillCredentialInput) => {
+    // Marked before the value goes in, so no window lets a script read it back.
+    if (input.field === "password") tab.passwordDocuments.add(await mainDocument(tab));
+    await ServerBrowserPage.fillCredential(tab.page, input, async ({ frameUrl, mainFrame }) => {
+      if (!mainFrame) {
+        const frameLogins = await credentialValue(credentials.matching(frameUrl));
+        if (!frameLogins.some((login) => login.id === input.credentialId)) {
+          throw new ServerBrowserPage.ServerBrowserOperationError(
+            "PreviewAutomationExecutionError",
+            new BrowserCredentialError({ reason: "origin_mismatch" }).message,
+          );
+        }
+      }
+      return credentialValue(
+        credentials.resolveForFill({
+          credentialId: input.credentialId,
+          field: input.field,
+          url: tab.page.url(),
+        }),
+      );
+    });
+  };
+
   const requireTab = async (request: PreviewAutomationRequest) => {
     if (!request.agentSessionId)
       throw new BrowserControlInterrupted("The agent session is missing. Reconnect the provider.");
@@ -2118,6 +2175,12 @@ const make = Effect.gen(function* () {
 
   const executeTabOperation = async (tab: ServerTab, request: PreviewAutomationRequest) => {
     const input = request.input;
+    // A CSS selector such as input[value^="a"] would test a filled password one guess at a time.
+    if (usesSelectorLocator(input) && (await holdsFilledPassword(tab)))
+      throw new ServerBrowserPage.ServerBrowserOperationError(
+        "PreviewAutomationExecutionError",
+        "After a saved password was filled, this page accepts only aria-ref locators from preview_snapshot; navigate first to use selectors.",
+      );
     switch (request.operation) {
       case "navigate": {
         const navigateInput = input as PreviewAutomationNavigateInput;
@@ -2194,7 +2257,17 @@ const make = Effect.gen(function* () {
         return recordAction(tab, "scroll", () =>
           ServerBrowserPage.scroll(tab.page, input as PreviewAutomationScrollInput),
         );
+      case "fillCredential":
+        await recordAction(tab, "fill_credential", () =>
+          fillCredential(tab, input as PreviewAutomationFillCredentialInput),
+        );
+        return undefined;
       case "evaluate":
+        if (await holdsFilledPassword(tab))
+          throw new ServerBrowserPage.ServerBrowserOperationError(
+            "PreviewAutomationExecutionError",
+            "Script evaluation is disabled on this page after a saved password was filled; navigate first.",
+          );
         return ServerBrowserPage.evaluate(
           tab.cdp,
           input as PreviewAutomationEvaluateInput,

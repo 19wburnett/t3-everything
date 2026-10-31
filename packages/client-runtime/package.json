@@ -223,6 +223,10 @@
       "types": "./src/state/device.ts",
       "default": "./src/state/device.ts"
     },
+    "./state/browserCredentials": {
+      "types": "./src/state/browserCredentials.ts",
+      "default": "./src/state/browserCredentials.ts"
+    },
     "./state/deviceHubAccess": {
       "types": "./src/state/deviceHubAccess.ts",
       "default": "./src/state/deviceHubAccess.ts"

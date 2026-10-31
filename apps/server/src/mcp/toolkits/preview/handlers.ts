@@ -29,6 +29,7 @@ import {
   toSafeThreadAttachmentSegment,
 } from "../../../attachmentStore.ts";
 import { resolveAttachmentRelativePath } from "../../../attachmentPaths.ts";
+import * as BrowserCredentials from "../../../browserCredentials/BrowserCredentials.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -112,6 +113,25 @@ const invokeTargeted = <A extends object>(
   );
 };
 
+/** Names the saved logins for the tab's site; a store that can't be read leaves status as it is. */
+const withSavedLogins = Effect.fn("PreviewToolkit.withSavedLogins")(function* <
+  S extends PreviewAutomationStatus,
+>(status: S) {
+  if (!status.url) return status;
+  const credentials = yield* BrowserCredentials.BrowserCredentials;
+  const matches = yield* credentials.matching(status.url).pipe(
+    Effect.catchTags({
+      BrowserCredentialError: (error) =>
+        Effect.logWarning("Could not read saved logins for preview status", {
+          reason: error.reason,
+        }).pipe(Effect.as([])),
+    }),
+  );
+  return matches.length === 0
+    ? status
+    : { ...status, credentials: matches.map(({ id, username }) => ({ id, username })) };
+});
+
 const decodeActInput = Record.map(PreviewAutomationActInputs, (schema) =>
   Schema.decodeUnknownEffect(schema),
 );
@@ -193,7 +213,9 @@ const handlers = {
     invokeTargeted<PreviewAutomationStatus>("dialog", input),
   ),
   preview_status: McpToolAccess.readsAsCaller((input) =>
-    invokeTargeted<PreviewAutomationStatus>("status", input ?? {}),
+    invokeTargeted<PreviewAutomationStatus>("status", input ?? {}).pipe(
+      Effect.flatMap(withSavedLogins),
+    ),
   ),
   preview_open: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("open", normalizePreviewOpenInput(input)),
@@ -218,7 +240,7 @@ const handlers = {
       ),
       Effect.flatMap((decoded) =>
         invokeTargeted<object>(
-          action,
+          action === "fill_credential" ? "fillCredential" : action,
           decoded,
           "timeoutMs" in decoded ? decoded.timeoutMs : undefined,
         ),

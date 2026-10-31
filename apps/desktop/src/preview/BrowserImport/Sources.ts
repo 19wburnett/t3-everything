@@ -194,16 +194,25 @@ export const BROWSER_IMPORT_SOURCES: ReadonlyArray<BrowserImportSourceDefinition
   },
 ];
 
+export const resolveProfilePath = (
+  definition: BrowserImportSourceDefinition,
+  context: BrowserImportPathContext,
+  profileDirectory: string,
+): string | undefined => {
+  const root = definition.userDataDirectory(context);
+  if (root === undefined) return undefined;
+  return context.path.isAbsolute(profileDirectory)
+    ? profileDirectory
+    : context.path.join(root, profileDirectory);
+};
+
 const cookieDatabaseCandidatePaths = (
   definition: BrowserImportSourceDefinition,
   context: BrowserImportPathContext,
   profileDirectory: string,
 ): ReadonlyArray<string> => {
-  const root = definition.userDataDirectory(context);
-  if (root === undefined) return [];
-  const profilePath = context.path.isAbsolute(profileDirectory)
-    ? profileDirectory
-    : context.path.join(root, profileDirectory);
+  const profilePath = resolveProfilePath(definition, context, profileDirectory);
+  if (profilePath === undefined) return [];
   if (definition.engine === "firefox") {
     return [context.path.join(profilePath, "cookies.sqlite")];
   }

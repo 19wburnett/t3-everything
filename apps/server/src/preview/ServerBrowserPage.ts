@@ -7,6 +7,7 @@ import {
   type PreviewAutomationConsoleEntry,
   type PreviewAutomationDragInput,
   type PreviewAutomationEvaluateInput,
+  type PreviewAutomationFillCredentialInput,
   type PreviewAutomationHoverInput,
   type PreviewAutomationNetworkEntry,
   type PreviewAutomationPressInput,
@@ -711,6 +712,77 @@ export const type = async (page: Page, input: PreviewAutomationTypeInput) => {
     await page.keyboard.press("Delete");
   }
   await page.keyboard.insertText(input.text);
+};
+
+/**
+ * Fills a saved login. The value is resolved only once the target is known, from the URL of the
+ * frame it lands in, and no error carries Playwright's text, which could quote the value.
+ */
+export const fillCredential = async (
+  page: Page,
+  input: PreviewAutomationFillCredentialInput,
+  resolve: (target: { readonly frameUrl: string; readonly mainFrame: boolean }) => Promise<string>,
+) => {
+  const timeout = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const handle = await targetLocator(page, input)!.elementHandle({ timeout });
+  if (handle === null) {
+    throw new ServerBrowserOperationError(
+      "PreviewAutomationExecutionError",
+      "No element matches the locator, so the saved login was not filled.",
+    );
+  }
+  try {
+    const fits = await handle.evaluate((element, field) => {
+      const control = element as unknown as {
+        readonly type: string;
+        readonly disabled: boolean;
+        readonly readOnly: boolean;
+      };
+      if (element.tagName !== "INPUT" || control.disabled || control.readOnly) return false;
+      if (field === "password") return control.type === "password";
+      return ![
+        "button",
+        "checkbox",
+        "color",
+        "file",
+        "hidden",
+        "image",
+        "radio",
+        "range",
+        "reset",
+        "submit",
+      ].includes(control.type);
+    }, input.field);
+    if (!fits) {
+      throw new ServerBrowserOperationError(
+        "PreviewAutomationTargetNotEditableError",
+        input.field === "password"
+          ? "A saved password fills only into an enabled password field."
+          : "The target is not an enabled text field, so the username was not filled.",
+      );
+    }
+    const frame = await handle.ownerFrame();
+    if (frame === null) {
+      throw new ServerBrowserOperationError(
+        "PreviewAutomationExecutionError",
+        "The field left the page before the saved login was filled.",
+      );
+    }
+    const value = await resolve({ frameUrl: frame.url(), mainFrame: frame === page.mainFrame() });
+    await handle.fill(value, { timeout }).catch((cause: unknown) => {
+      throw cause instanceof Error && cause.name === "TimeoutError"
+        ? new ServerBrowserOperationError(
+            "PreviewAutomationTimeoutError",
+            "The field did not accept the saved login in time.",
+          )
+        : new ServerBrowserOperationError(
+            "PreviewAutomationExecutionError",
+            "The saved login could not be filled into this field.",
+          );
+    });
+  } finally {
+    void handle.dispose().catch(constVoid);
+  }
 };
 
 export const hover = async (

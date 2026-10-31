@@ -20,6 +20,12 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.previewStopLocalServer]: AuthTerminalOperateScope,
   [WS_METHODS.serverRunStorageCleanup]: AuthSettingsWriteScope,
   [WS_METHODS.serverCheckOtlpEndpoint]: AuthSettingsWriteScope,
+  // Saved logins fill on agents' behalf, so changing them is a settings write like secrets.
+  [WS_METHODS.browserCredentialsImport]: AuthSettingsWriteScope,
+  [WS_METHODS.browserCredentialsSync]: AuthSettingsWriteScope,
+  [WS_METHODS.browserCredentialsUnlockBitwarden]: AuthSettingsWriteScope,
+  [WS_METHODS.browserCredentialsLockBitwarden]: AuthSettingsWriteScope,
+  [WS_METHODS.browserCredentialsRemove]: AuthSettingsWriteScope,
   [WS_METHODS.pullRequestsRunAction]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsUpdate]: AuthSourceControlWriteScope,
   [WS_METHODS.pullRequestsComment]: AuthSourceControlWriteScope,

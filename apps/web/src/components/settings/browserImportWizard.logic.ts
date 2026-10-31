@@ -1,4 +1,14 @@
-import type { BrowserImportFailureReason, BrowserImportSource } from "@t3tools/contracts";
+import { BrowserImportFailureReason, type BrowserImportSource } from "@t3tools/contracts";
+
+/** IPC carries reason tokens inside messages; treat unknown tokens as read failures without exposing raw
+ * text. */
+export const importFailureReason = (cause: unknown): BrowserImportFailureReason => {
+  const message = String((cause as { message?: unknown } | undefined)?.message ?? "");
+  return (
+    BrowserImportFailureReason.literals.find((reason) => message.includes(`failed: ${reason}.`)) ??
+    "readFailed"
+  );
+};
 
 export interface WizardTargetProfile {
   readonly id: string;

@@ -10,6 +10,7 @@ import {
   EnvironmentId,
   OrchestratorMcpEnvironmentTarget,
   OrchestratorMcpFailure,
+  PREVIEW_AUTOMATION_SERVER_OPERATIONS,
   PreviewTabId,
   ProviderInstanceId,
   ProviderInteractionMode,
@@ -25,6 +26,7 @@ import * as Stream from "effect/Stream";
 import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http";
 
+import * as BrowserCredentials from "../browserCredentials/BrowserCredentials.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as PullRequestReviewGuideService from "../pullRequest/PullRequestReviewGuideService.ts";
@@ -72,6 +74,24 @@ const client = McpSchema.McpServerClient.of({
 });
 const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
   Layer.provideMerge(McpServer.McpServer.layer),
+  Layer.provideMerge(
+    Layer.mock(BrowserCredentials.BrowserCredentials)({
+      matching: (url) =>
+        Effect.succeed(
+          url.startsWith("https://example.test/")
+            ? [
+                {
+                  id: "login-1",
+                  origin: "https://example.test",
+                  username: "ada",
+                  source: "browser" as const,
+                  sourceName: "Chrome",
+                },
+              ]
+            : [],
+        ),
+    }),
+  ),
   Layer.provideMerge(McpToolAccessTestkit.liveThreadsLayer),
   Layer.provideMerge(PreviewAutomationBroker.layer),
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-http-server-test-" })),
@@ -109,12 +129,16 @@ const snapshotResult = {
   },
 };
 
-const serveSnapshots = (clientId: string, result: unknown) =>
+const serveSnapshots = (clientId: string, result: unknown, serverHost = false) =>
   Effect.gen(function* () {
     const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
     const connected = yield* Deferred.make<void>();
     const inputs: Array<unknown> = [];
-    const events = yield* broker.connect({ clientId, environmentId });
+    const events = yield* broker.connect({
+      clientId,
+      environmentId,
+      ...(serverHost ? { supportedOperations: [...PREVIEW_AUTOMATION_SERVER_OPERATIONS] } : {}),
+    });
     yield* Stream.runForEach(events, (event) => {
       if (event.type === "connected") return Deferred.succeed(connected, undefined);
       inputs.push(event.request.input);
@@ -462,7 +486,7 @@ it.effect("advertises the compact input schema for every registered tool", () =>
 it.effect("checks each preview_act action against that action's own input", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const inputs = yield* serveSnapshots("mcp-act-client", {});
+      const inputs = yield* serveSnapshots("mcp-act-client", {}, true);
 
       const missingKey = yield* callTool("preview_act", { action: "press" });
       expect(missingKey.isError).toBe(true);
@@ -478,6 +502,36 @@ it.effect("checks each preview_act action against that action's own input", () =
 
       yield* callTool("preview_act", { action: "type", selector: "#name", text: "Ada" });
       expect(inputs.at(-2)).toEqual({ selector: "#name", text: "Ada" });
+
+      // Only a host offering `fillCredential` can receive the snake_case action.
+      const fill = yield* callTool("preview_act", {
+        action: "fill_credential",
+        credentialId: "login-1",
+        field: "password",
+        locator: "aria-ref=e2",
+        text: "ignored",
+      });
+      expect(fill.isError).toBe(false);
+      expect(inputs.at(-2)).toEqual({
+        credentialId: "login-1",
+        field: "password",
+        locator: "aria-ref=e2",
+      });
+    }),
+  ).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("names only the saved logins for the status page's site", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const page = { available: true, visible: true, tabId: null, title: null, loading: false };
+      yield* serveSnapshots("mcp-status-client", { ...page, url: "https://example.test/login" });
+      const status = yield* callTool("preview_status", {});
+      expect(status.structuredContent).toEqual({
+        ...page,
+        url: "https://example.test/login",
+        credentials: [{ id: "login-1", username: "ada" }],
+      });
     }),
   ).pipe(Effect.provide(layerTest)),
 );

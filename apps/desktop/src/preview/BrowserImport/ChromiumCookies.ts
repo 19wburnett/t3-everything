@@ -14,9 +14,9 @@ import { ChildProcessSpawner } from "effect/process";
 import {
   ChromiumKeyError,
   ChromiumKeyFailure,
-  readWindowsKey,
-  resolveChromiumKeys,
+  resolveChromiumSourceKeys,
   type ChromiumKeyMaterial,
+  type ChromiumKeySource,
 } from "./ChromiumKeys.ts";
 import {
   bareHost,
@@ -253,13 +253,8 @@ export const readChromiumCookieDatabase = Effect.fn("ChromiumCookies.readChromiu
   },
 );
 
-export interface ChromiumCookieSource {
+export interface ChromiumCookieSource extends ChromiumKeySource {
   readonly cookieDatabasePath: string;
-  readonly keychainService: string | undefined;
-  readonly keychainAccount: string | undefined;
-  readonly linuxSecretApplication: string | undefined;
-  readonly windowsLocalStatePath?: string;
-  readonly platform: NodeJS.Platform;
 }
 
 export const readChromiumCookies = Effect.fn("ChromiumCookies.readChromiumCookies")(function* (
@@ -269,18 +264,9 @@ export const readChromiumCookies = Effect.fn("ChromiumCookies.readChromiumCookie
   ChromiumCookieReadError,
   FileSystem.FileSystem | Path.Path | Scope.Scope | ChildProcessSpawner.ChildProcessSpawner
 > {
-  const keys = yield* (
-    source.platform === "win32" && source.windowsLocalStatePath
-      ? readWindowsKey(source.windowsLocalStatePath).pipe(Effect.map((gcmV10) => ({ gcmV10 })))
-      : resolveChromiumKeys({
-          platform: source.platform,
-          keychainService: source.keychainService,
-          keychainAccount: source.keychainAccount,
-          linuxSecretApplication: source.linuxSecretApplication,
-        })
-  ).pipe(
+  const keys = yield* resolveChromiumSourceKeys(source).pipe(
     Effect.mapError(
-      (cause: ChromiumKeyError) =>
+      (cause) =>
         new ChromiumCookieReadError({
           reason: cause.reason,
           cookieDatabasePath: source.cookieDatabasePath,

@@ -37,6 +37,7 @@ export const BrowserImportFailureReason = Schema.Literals([
   "profileNotSaved",
   "profileLimitReached",
   "readFailed",
+  "primaryPasswordSet",
 ]);
 export type BrowserImportFailureReason = typeof BrowserImportFailureReason.Type;
 
@@ -69,6 +70,11 @@ export const DesktopPreviewImportCookiesInputSchema = Schema.Struct({
   targetProfileId: BrowserProfileId,
 });
 
+export const DesktopPreviewReadPasswordsInputSchema = Schema.Struct({
+  sourceId: BrowserImportSourceId,
+  sourceProfileDirectory: TrimmedNonEmptyString,
+});
+
 export const BrowserImportResult = Schema.Struct({
   imported: Schema.Int,
   skipped: Schema.Int,
@@ -98,4 +104,6 @@ export const BROWSER_IMPORT_FAILURE_COPY: Readonly<Record<BrowserImportFailureRe
   profileLimitReached:
     "You've reached the profile limit. Delete a profile or import into an existing one.",
   readFailed: "The browser's cookie database could not be read.",
+  primaryPasswordSet:
+    "This Firefox profile has a primary password. Remove it in Firefox settings, import, then set it again.",
 };

@@ -11,10 +11,12 @@ import {
   DesktopPreviewSetAudioMutedInputSchema,
   DesktopPreviewSetColorSchemeInputSchema,
   DesktopPreviewSetZoomFactorInputSchema,
+  BrowserCredentialImportEntry,
   BrowserImportResult,
   BrowserImportSource,
   DesktopPreviewClearDataInputSchema,
   DesktopPreviewImportCookiesInputSchema,
+  DesktopPreviewReadPasswordsInputSchema,
   DesktopPreviewCreateTabInputSchema,
   DesktopPreviewTabInputSchema,
   DesktopPreviewWebviewConfigSchema,
@@ -338,6 +340,16 @@ export const importBrowserCookies = DesktopIpc.makeIpcMethod({
       persistent,
       ...(namespace === undefined ? {} : { namespace }),
     });
+  }),
+});
+
+export const readBrowserPasswords = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREVIEW_READ_PASSWORDS_CHANNEL,
+  payload: DesktopPreviewReadPasswordsInputSchema,
+  result: Schema.Array(BrowserCredentialImportEntry),
+  handler: Effect.fn("desktop.ipc.preview.readBrowserPasswords")(function* (input) {
+    const browserImport = yield* BrowserImport.BrowserImport;
+    return yield* browserImport.readPasswords(input);
   }),
 });
 

@@ -122,11 +122,18 @@ describe("command permissions", () => {
     ),
   );
 
-  it.effect("requires the destination settings grant to check OTLP endpoints", () =>
+  it.effect.each([
+    WS_METHODS.serverCheckOtlpEndpoint,
+    WS_METHODS.browserCredentialsImport,
+    WS_METHODS.browserCredentialsSync,
+    WS_METHODS.browserCredentialsUnlockBitwarden,
+    WS_METHODS.browserCredentialsLockBitwarden,
+    WS_METHODS.browserCredentialsRemove,
+  ])("requires the destination settings grant for %s", (method) =>
     Effect.scoped(
       Effect.gen(function* () {
         const registry = yield* setup;
-        const check = createCommandPermissions(runtime, WS_METHODS.serverCheckOtlpEndpoint);
+        const check = createCommandPermissions(runtime, method);
         registry.set(sessions(env), AsyncResult.success(grant(true)));
         expect(registry.get(check.permissionAtom(env))).toBe(false);
         registry.set(

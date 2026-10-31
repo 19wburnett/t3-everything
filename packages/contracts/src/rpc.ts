@@ -377,6 +377,15 @@ import {
 } from "./scheduledTask.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import {
+  BrowserCredentialError,
+  BrowserCredentialImportInput,
+  BrowserCredentialImportResult,
+  BrowserCredentialListResult,
+  BrowserCredentialRemoveInput,
+  BrowserCredentialSyncInput,
+  BrowserCredentialUnlockInput,
+} from "./browserCredential.ts";
+import {
   ProjectCloneActionInput,
   ProjectCloneActionResult,
   ProjectCloneListEvent,
@@ -544,6 +553,12 @@ export const WS_METHODS = {
   scheduledTasksRunNow: "scheduledTasks.runNow",
   scheduledTasksRotateWebhookToken: "scheduledTasks.rotateWebhookToken",
   secretsAnswerRequest: "secrets.answerRequest",
+  browserCredentialsList: "browserCredentials.list",
+  browserCredentialsImport: "browserCredentials.import",
+  browserCredentialsSync: "browserCredentials.sync",
+  browserCredentialsUnlockBitwarden: "browserCredentials.unlockBitwarden",
+  browserCredentialsLockBitwarden: "browserCredentials.lockBitwarden",
+  browserCredentialsRemove: "browserCredentials.remove",
   guestShareCreate: "guestShare.create",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
@@ -1932,6 +1947,44 @@ const WsSecretsAnswerRequestRpc = Rpc.make(WS_METHODS.secretsAnswerRequest, {
   error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
 });
 
+const BrowserCredentialRpcError = Schema.Union([
+  BrowserCredentialError,
+  EnvironmentAuthorizationError,
+]);
+
+const WsBrowserCredentialsListRpc = Rpc.make(WS_METHODS.browserCredentialsList, {
+  payload: Schema.Struct({}),
+  success: BrowserCredentialListResult,
+  error: BrowserCredentialRpcError,
+});
+
+const WsBrowserCredentialsImportRpc = Rpc.make(WS_METHODS.browserCredentialsImport, {
+  payload: BrowserCredentialImportInput,
+  success: BrowserCredentialImportResult,
+  error: BrowserCredentialRpcError,
+});
+
+const WsBrowserCredentialsSyncRpc = Rpc.make(WS_METHODS.browserCredentialsSync, {
+  payload: BrowserCredentialSyncInput,
+  success: BrowserCredentialImportResult,
+  error: BrowserCredentialRpcError,
+});
+
+const WsBrowserCredentialsUnlockBitwardenRpc = Rpc.make(
+  WS_METHODS.browserCredentialsUnlockBitwarden,
+  { payload: BrowserCredentialUnlockInput, error: BrowserCredentialRpcError },
+);
+
+const WsBrowserCredentialsLockBitwardenRpc = Rpc.make(WS_METHODS.browserCredentialsLockBitwarden, {
+  payload: Schema.Struct({}),
+  error: BrowserCredentialRpcError,
+});
+
+const WsBrowserCredentialsRemoveRpc = Rpc.make(WS_METHODS.browserCredentialsRemove, {
+  payload: BrowserCredentialRemoveInput,
+  error: BrowserCredentialRpcError,
+});
+
 const WsScheduledTasksListWebhookDeliveriesRpc = Rpc.make(
   WS_METHODS.scheduledTasksListWebhookDeliveries,
   {
@@ -2033,6 +2086,12 @@ export const WsRpcGroup = RpcGroup.make(
   WsScheduledTasksRunNowRpc,
   WsScheduledTasksRotateWebhookTokenRpc,
   WsSecretsAnswerRequestRpc,
+  WsBrowserCredentialsListRpc,
+  WsBrowserCredentialsImportRpc,
+  WsBrowserCredentialsSyncRpc,
+  WsBrowserCredentialsUnlockBitwardenRpc,
+  WsBrowserCredentialsLockBitwardenRpc,
+  WsBrowserCredentialsRemoveRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
   WsServerReportClientActivityRpc,

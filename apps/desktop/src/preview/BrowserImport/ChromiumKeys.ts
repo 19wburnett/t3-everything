@@ -217,9 +217,7 @@ export const unwrapWindowsDpapiKey = Effect.fn("ChromiumKeys.unwrapWindowsDpapiK
   );
 });
 
-export const readWindowsKey = Effect.fn("ChromiumKeys.readWindowsKey")(function* (
-  localStatePath: string,
-) {
+const readWindowsKey = Effect.fn("ChromiumKeys.readWindowsKey")(function* (localStatePath: string) {
   const fileSystem = yield* FileSystem.FileSystem;
   const contents = yield* fileSystem
     .readFileString(localStatePath)
@@ -273,3 +271,15 @@ export const resolveChromiumKeys = Effect.fn("ChromiumKeys.resolveChromiumKeys")
 
   return yield* new ChromiumKeyError({ reason: "unsupportedPlatform" });
 });
+
+export interface ChromiumKeySource extends ChromiumKeyRequest {
+  readonly windowsLocalStatePath?: string;
+}
+
+/** Cookies and saved passwords share one OSCrypt key per browser. */
+export const resolveChromiumSourceKeys = (source: ChromiumKeySource) =>
+  source.platform === "win32" && source.windowsLocalStatePath
+    ? readWindowsKey(source.windowsLocalStatePath).pipe(
+        Effect.map((gcmV10): ChromiumKeyMaterial => ({ gcmV10 })),
+      )
+    : resolveChromiumKeys(source);

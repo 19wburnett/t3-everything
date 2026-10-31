@@ -8,6 +8,7 @@ import * as HostProcess from "@t3tools/shared/HostProcess";
 import { it } from "@effect/vitest";
 import {
   type BrowserRecordingFrameRate,
+  BrowserCredentialError,
   EnvironmentId,
   PreviewTabId,
   ProviderInstanceId,
@@ -30,6 +31,7 @@ import * as TestClock from "effect/testing/TestClock";
 import type { BrowserContext, Page } from "playwright-core";
 import { beforeEach, expect, vi } from "vite-plus/test";
 
+import * as BrowserCredentials from "../browserCredentials/BrowserCredentials.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as Broker from "../mcp/PreviewAutomationBroker.ts";
@@ -381,6 +383,12 @@ const dependencies = Layer.mergeAll(
     turn: (threadId, active) => Effect.sync(() => desktopTurns.emit("turn", threadId, active)),
   }),
   PreviewAgentActivity.layer,
+  Layer.mock(BrowserCredentials.BrowserCredentials)({
+    resolveForFill: ({ field, url }) =>
+      url.startsWith("https://login.example.test/")
+        ? Effect.succeed(field === "password" ? "hunter2" : "ada")
+        : Effect.fail(new BrowserCredentialError({ reason: "origin_mismatch" })),
+  }),
 ).pipe(
   Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-server-browser-" })),
   Layer.provideMerge(NodeServices.layer),
@@ -2112,4 +2120,83 @@ it.live("failed session and browser launches release capacity, as does closing a
       expect(status.tabs).toHaveLength(8);
     }),
   ).pipe(Effect.provide(layer)),
+);
+
+it.live(
+  "refuses scripts and CSS selectors where a saved password was filled, until navigation",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { broker, tabId } = yield* ready;
+        const page = contexts[0]!.page;
+        const session = contexts[0]!.sessions[0]!;
+        const send = session.send.getMockImplementation()!;
+        // Each URL stands in for a new main-frame document.
+        session.send.mockImplementation(async (method, input) =>
+          method === "Page.getFrameTree"
+            ? { frameTree: { frame: { id: "main", loaderId: page.url() } } }
+            : send(method, input),
+        );
+        const field = {
+          evaluate: vi.fn(async () => true),
+          ownerFrame: async () => page,
+          fill: vi.fn(async (_value: string, _options: unknown) => {}),
+          dispose: async () => {},
+        };
+        page.locator.mockImplementation(() => ({ elementHandle: async () => field }) as never);
+        const navigate = (url: string) =>
+          broker.invoke({ scope, tabId, operation: "navigate", input: { url } });
+        const fill = (credentialField: "username" | "password") =>
+          broker.invoke<void>({
+            scope,
+            tabId,
+            operation: "fillCredential",
+            input: { credentialId: "login-1", field: credentialField, locator: "#field" },
+          });
+        const evaluate = broker.invoke<string>({
+          scope,
+          tabId,
+          operation: "evaluate",
+          input: { expression: "document.querySelector('#field').value" },
+        });
+
+        yield* navigate("https://login.example.test/sign-in");
+        yield* fill("username");
+        expect(yield* evaluate).toBe("evaluated");
+        yield* fill("password");
+        expect(field.fill.mock.calls.map(([value]) => value)).toEqual(["ada", "hunter2"]);
+        expect(yield* Effect.flip(evaluate)).toMatchObject({
+          _tag: "PreviewAutomationExecutionError",
+          reason:
+            "Script evaluation is disabled on this page after a saved password was filled; navigate first.",
+        });
+        expect(
+          yield* Effect.flip(
+            broker.invoke<object>({
+              scope,
+              tabId,
+              operation: "waitFor",
+              input: { locator: "input[value^='h']" },
+            }),
+          ),
+        ).toMatchObject({ reason: expect.stringContaining("only aria-ref locators") });
+        const snapshot = yield* broker.invoke<PreviewAutomationSnapshot>({
+          scope,
+          tabId,
+          operation: "snapshot",
+          input: {},
+        });
+        expect(snapshot.actionTimeline.map((event) => event.action)).toContain("fill_credential");
+        expect(JSON.stringify(snapshot)).not.toContain("hunter2");
+
+        yield* navigate("https://login.example.test/home");
+        expect(yield* evaluate).toBe("evaluated");
+
+        yield* navigate("https://elsewhere.test/");
+        expect(yield* Effect.flip(fill("password"))).toMatchObject({
+          reason: new BrowserCredentialError({ reason: "origin_mismatch" }).message,
+        });
+        expect(field.fill).toHaveBeenCalledTimes(2);
+      }),
+    ).pipe(Effect.provide(layer)),
 );

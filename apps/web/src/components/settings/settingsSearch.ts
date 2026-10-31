@@ -866,6 +866,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "browser",
   },
   {
+    id: "browser-saved-logins",
+    title: "Saved logins",
+    to: "/settings/browser",
+    searchTerms: ["passwords credentials sign in autofill 1password bitwarden chrome firefox"],
+  },
+  {
     id: "browser-default-profile",
     title: "Default browser profile",
     to: "/settings/browser",

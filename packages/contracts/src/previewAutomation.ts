@@ -11,6 +11,7 @@ import {
 } from "./preview.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import { BrowserProfileId } from "./browserProfile.ts";
+import { BrowserCredentialId } from "./browserCredential.ts";
 
 const BoundedUrl = Schema.String.check(Schema.isTrimmed())
   .check(Schema.isNonEmpty())
@@ -51,6 +52,7 @@ export const PREVIEW_AUTOMATION_SERVER_OPERATIONS = [
   "hover",
   "select",
   "drag",
+  "fillCredential",
 ] as const;
 export const PreviewAutomationOperation = Schema.Literals(PREVIEW_AUTOMATION_SERVER_OPERATIONS);
 export type PreviewAutomationOperation = typeof PreviewAutomationOperation.Type;
@@ -126,6 +128,10 @@ export const PreviewAutomationStatus = Schema.Struct({
   ),
   profiles: Schema.optional(Schema.Array(PreviewAutomationProfile)),
   defaultProfileId: Schema.optional(BrowserProfileId),
+  /** Saved logins for the tab's current site, for `fill_credential`. Values are never shown. */
+  credentials: Schema.optional(
+    Schema.Array(Schema.Struct({ id: BrowserCredentialId, username: Schema.String })),
+  ),
 });
 export type PreviewAutomationStatus = typeof PreviewAutomationStatus.Type;
 
@@ -395,6 +401,15 @@ export const PreviewAutomationPressInput = Schema.Struct({
 });
 export type PreviewAutomationPressInput = typeof PreviewAutomationPressInput.Type;
 
+export const PreviewAutomationFillCredentialInput = Schema.Struct({
+  ...PreviewAutomationTabTargetFields,
+  credentialId: BrowserCredentialId,
+  field: Schema.Literals(["username", "password"]),
+  locator: Locator,
+  timeoutMs: OptionalTimeoutMs,
+});
+export type PreviewAutomationFillCredentialInput = typeof PreviewAutomationFillCredentialInput.Type;
+
 export const PreviewAutomationScrollInput = Schema.Struct({
   ...PreviewAutomationTabTargetFields,
   deltaX: Schema.optional(Schema.Finite),
@@ -421,6 +436,7 @@ export const PreviewAutomationActInputs = {
   upload: PreviewAutomationUploadInput,
   press: PreviewAutomationPressInput,
   scroll: PreviewAutomationScrollInput,
+  fill_credential: PreviewAutomationFillCredentialInput,
 } as const;
 export type PreviewAutomationAction = keyof typeof PreviewAutomationActInputs;
 
@@ -435,6 +451,7 @@ export const PreviewAutomationActInput = Schema.Struct({
     "upload",
     "press",
     "scroll",
+    "fill_credential",
   ]),
   ...PreviewAutomationTabTargetFields,
   locator: Schema.optional(Locator),
@@ -453,6 +470,8 @@ export const PreviewAutomationActInput = Schema.Struct({
   modifiers: PreviewAutomationPressInput.fields.modifiers,
   deltaX: Schema.optional(Schema.Finite),
   deltaY: Schema.optional(Schema.Finite),
+  credentialId: Schema.optional(BrowserCredentialId),
+  field: PreviewAutomationFillCredentialInput.fields.field.pipe(Schema.optional),
   timeoutMs: Schema.optional(Schema.Int),
 });
 export type PreviewAutomationActInput = typeof PreviewAutomationActInput.Type;

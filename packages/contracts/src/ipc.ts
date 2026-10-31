@@ -4,6 +4,7 @@ import type { PreviewCaptureFailureEncoded } from "./previewCapture.ts";
 import { SnapShotSource } from "./chatAttachment.ts";
 import { EnvironmentId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { BrowserProfileId } from "./browserProfile.ts";
+import type { BrowserCredentialImportEntry } from "./browserCredential.ts";
 import type {
   BrowserImportResult,
   BrowserImportSource,
@@ -1166,6 +1167,11 @@ export interface DesktopPreviewBridge {
     readonly sourceProfileDirectory: string;
     readonly targetProfileId: string;
   }) => Promise<BrowserImportResult>;
+  /** Decrypts that browser profile's saved logins on this machine; the caller sends them to its local environment. */
+  readBrowserPasswords: (input: {
+    readonly sourceId: BrowserImportSourceId;
+    readonly sourceProfileDirectory: string;
+  }) => Promise<ReadonlyArray<BrowserCredentialImportEntry>>;
   setAnnotationTheme: (theme: DesktopPreviewAnnotationTheme) => Promise<void>;
   setAnnotationSendEnabled: (tabId: string, enabled: boolean) => Promise<void>;
   /** Resolves with the annotation and attach/send intent, or null on cancellation. Rejects if activation fails. */
