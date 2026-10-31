@@ -227,6 +227,10 @@
       "types": "./src/state/deviceHubAccess.ts",
       "default": "./src/state/deviceHubAccess.ts"
     },
+    "./state/companyChannels": {
+      "types": "./src/state/companyChannels.ts",
+      "default": "./src/state/companyChannels.ts"
+    },
     "./state/peerLinks": {
       "types": "./src/state/peerLinks.ts",
       "default": "./src/state/peerLinks.ts"

@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import { GitPreparePullRequestThreadInput, GitRunStackedActionInput } from "./git.ts";
 import {
   AuthAccessWriteScope,
+  AuthFilesystemWriteScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthPreviewOperateScope,
@@ -68,6 +69,17 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.peerLinksUnlink]: AuthAccessWriteScope,
   // A link lets every agent here reach the other environment: Settings' bar.
   [WS_METHODS.peerLinksAnswerRequest]: AuthAccessWriteScope,
+  // Accounts hold mail and social credentials, like the secrets Settings saves.
+  [WS_METHODS.companyChannelsSaveAccount]: AuthSettingsWriteScope,
+  [WS_METHODS.companyChannelsRemoveAccount]: AuthSettingsWriteScope,
+  [WS_METHODS.companyChannelsMicrosoftSignInStart]: AuthSettingsWriteScope,
+  [WS_METHODS.companyChannelsMicrosoftSignInWait]: AuthSettingsWriteScope,
+  [WS_METHODS.companyChannelsMicrosoftSignInCancel]: AuthSettingsWriteScope,
+  // Drafts are files in the project folder.
+  [WS_METHODS.companyChannelsSaveDraft]: AuthFilesystemWriteScope,
+  [WS_METHODS.companyChannelsDiscardDraft]: AuthFilesystemWriteScope,
+  // Sending acts as the account with its saved credentials: whoever may change them.
+  [WS_METHODS.companyChannelsSend]: AuthSettingsWriteScope,
 } as const;
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 

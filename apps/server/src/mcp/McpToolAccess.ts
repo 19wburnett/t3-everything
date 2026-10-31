@@ -162,6 +162,20 @@ export const writes = <P, A, E, R>(
     () => orchestratingCaller,
   );
 
+/**
+ * Reads something private to this environment, such as mail: threads here
+ * may, but not a read-only client or a link short of full access.
+ */
+export const readsPrivate = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
+  declare(
+    (params: P) =>
+      writingCaller.pipe(
+        Effect.tap((caller) => assertNotLinked(caller, "read this environment's private data")),
+        Effect.flatMap(() => handle(params)),
+      ),
+    () => writingCaller,
+  );
+
 /** Requires handler capability checks, not thread control; linked work is refused the same way. */
 export const writesWithCapability = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare(

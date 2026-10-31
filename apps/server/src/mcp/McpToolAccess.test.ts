@@ -113,6 +113,7 @@ const probe = {
 };
 const ProbeToolkit = Toolkit.make(
   Tool.make("reads", probe),
+  Tool.make("reads_private", probe),
   Tool.make("reads_as_caller", probe),
   Tool.make("acts_as_caller", probe),
   Tool.make("writes", probe),
@@ -133,6 +134,7 @@ const ProbeToolkit = Toolkit.make(
 const ran = Effect.succeed({ ran: "ran" });
 const probeHandlers: McpToolAccess.Handlers<typeof ProbeToolkit.tools> = {
   reads: McpToolAccess.reads(() => ran),
+  reads_private: McpToolAccess.readsPrivate(() => ran),
   reads_as_caller: McpToolAccess.readsAsCaller(() => ran),
   acts_as_caller: McpToolAccess.actsAsCaller(() => ran),
   writes: McpToolAccess.writes(() => ran),
@@ -179,6 +181,7 @@ export const refusedAtCompileTime = () => {
     // @ts-expect-error a handlers layer that skipped `McpToolAccess.toLayer`
     ProbeToolkit.toLayer({
       reads: unchecked,
+      reads_private: unchecked,
       reads_as_caller: unchecked,
       acts_as_caller: unchecked,
       writes: unchecked,
@@ -247,6 +250,11 @@ it.effect.each([
   ["reads", ended, {}, "ran"],
   ["reads", supervisedClient, {}, "ran"],
   ["reads", readOnlyClient, {}, "ran"],
+  ["reads_private", supervised, {}, "ran"],
+  ["reads_private", supervisedClient, {}, "ran"],
+  ["reads_private", readOnlyClient, {}, "capability_denied"],
+  ["reads_private", linkedClient, {}, "capability_denied"],
+  ["reads_private", fullAccessLinkedClient, {}, "ran"],
 
   ["writes", readOnlyClient, {}, "capability_denied"],
   ["writes_threads", readOnlyClient, { threadId: supervisedThreadId }, "capability_denied"],

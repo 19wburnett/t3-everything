@@ -1,4 +1,9 @@
-import { OrchestratorMcpFailure, ThreadId, TrimmedNonEmptyString } from "@t3tools/contracts";
+import {
+  OrchestratorMcpFailure,
+  ProjectId,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { McpSchema, Tool, Toolkit } from "effect/ai";
 
@@ -27,6 +32,7 @@ const BridgeInboxTool = Tool.make("t3_bridge_inbox", {
       Schema.Struct({
         threadId: ThreadId,
         threadTitle: Schema.NullOr(Schema.String),
+        projectId: Schema.NullOr(ProjectId),
         project: Schema.NullOr(Schema.String),
         messages: Schema.Array(
           Schema.Struct({

@@ -9,6 +9,7 @@ import { vi } from "vite-plus/test";
 import {
   AuthAccessReadScope,
   AuthAccessWriteScope,
+  AuthFilesystemWriteScope,
   AuthOrchestrationOperateScope,
   AuthOrchestrationReadScope,
   AuthPreviewOperateScope,
@@ -468,6 +469,32 @@ it.effect("requires access management to answer a link request", () =>
       );
       expect(registry.get(answer.permissionAtom(env))).toBe(true);
       yield* answer.authorize(registry, env);
+    }),
+  ),
+);
+
+it.effect.each([
+  [WS_METHODS.companyChannelsSaveAccount, AuthSettingsWriteScope],
+  [WS_METHODS.companyChannelsMicrosoftSignInStart, AuthSettingsWriteScope],
+  [WS_METHODS.companyChannelsSend, AuthSettingsWriteScope],
+  [WS_METHODS.companyChannelsSaveDraft, AuthFilesystemWriteScope],
+  [WS_METHODS.companyChannelsDiscardDraft, AuthFilesystemWriteScope],
+] as const)("requires %s's own grant, not orchestration", ([method, scope]) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const registry = yield* setup;
+      registry.set(sessions(env), AsyncResult.success(grant(true)));
+      const command = createCommandPermissions(runtime, method);
+      expect(registry.get(command.permissionAtom(env))).toBe(false);
+      expect((yield* command.authorize(registry, env).pipe(Effect.flip)).requiredPermission).toBe(
+        scope,
+      );
+      registry.set(
+        sessions(env),
+        AsyncResult.success({ ...grant(false), scopes: [scope], permissions: [scope] }),
+      );
+      expect(registry.get(command.permissionAtom(env))).toBe(true);
+      yield* command.authorize(registry, env);
     }),
   ),
 );

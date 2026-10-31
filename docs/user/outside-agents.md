@@ -111,6 +111,11 @@ while a thread is running join its open task. When a bot needs your approval,
 it asks in a reply and ends the task; your answer starts a new one. Stop ends
 the task, and the bot's later replies to it are refused.
 
+Each task carries its `projectId`. With it, a bot can read the company's inbox
+with `t3_company_inbox` and `t3_company_message`, and draft replies and posts
+with `t3_company_draft`; you send them from the Company hub. See
+[Company channels](./company-channels.md).
+
 Open tasks do not survive a restart of the environment: restarting stops
 running bot threads, so send the message again. To bridge another hosted
 agent, add an **Agent bridge** provider in **Settings → Providers → Add

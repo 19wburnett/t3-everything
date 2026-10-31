@@ -31,6 +31,7 @@ const INSTRUCTIONS =
 export interface AgentBridgeInboxTask {
   readonly threadId: ThreadId;
   readonly threadTitle: string | null;
+  readonly projectId: ProjectId | null;
   readonly project: string | null;
   readonly messages: ReadonlyArray<{
     readonly text: string;
@@ -133,6 +134,7 @@ const make = Effect.gen(function* () {
           return {
             threadId: task.threadId,
             threadTitle: shell?.title ?? null,
+            projectId: shell?.projectId ?? null,
             project: project?.title ?? null,
             messages: task.messages.map((message) => ({
               text: message.text,
