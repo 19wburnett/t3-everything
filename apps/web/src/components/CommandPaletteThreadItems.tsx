@@ -13,24 +13,14 @@ import {
   rankMessageMatches,
 } from "@t3tools/shared/paletteSearch";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
-import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { MessageSquareIcon } from "lucide-react";
 import { useState } from "react";
 
-import {
-  applyProviderInstanceSettings,
-  deriveProviderInstanceEntries,
-  type ProviderInstanceEntry,
-} from "../providerInstances";
+import { useProviderEntryByEnvironmentAndInstanceId } from "../hooks/useProviderEntryByEnvironmentAndInstanceId";
 import { useThreadShells } from "../state/entities";
-import {
-  useEnvironmentProviders,
-  useEnvironments,
-  usePrimaryEnvironmentId,
-} from "../state/environments";
+import { useEnvironments } from "../state/environments";
 import { useThreadSearch } from "../state/queries";
-import { primaryServerProvidersAtom } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
 import { buildThreadRouteParams } from "../threadRoutes";
@@ -43,28 +33,6 @@ import {
   ThreadRowTrailingStatus,
   ThreadSearchPullRequestNumber,
 } from "./ThreadStatusIndicators";
-
-function useProviderEntryByEnvironmentAndInstanceId() {
-  const { environments } = useEnvironments();
-  const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const providers = useAtomValue(primaryServerProvidersAtom);
-  const providersByEnvironment = useEnvironmentProviders();
-  return new Map<string, ProviderInstanceEntry>(
-    environments.flatMap((environment) => {
-      const serverConfig = environment.serverConfig;
-      const derived = deriveProviderInstanceEntries(
-        providersByEnvironment.get(environment.environmentId) ??
-          (environment.environmentId === primaryEnvironmentId ? providers : []),
-      );
-      const entries = serverConfig
-        ? applyProviderInstanceSettings(derived, serverConfig.settings, null)
-        : derived;
-      return entries.map(
-        (entry) => [`${environment.environmentId}:${entry.instanceId}`, entry] as const,
-      );
-    }),
-  );
-}
 
 function useConnectedThreadSearch(query: string) {
   const { environments } = useEnvironments();

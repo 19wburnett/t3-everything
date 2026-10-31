@@ -22,6 +22,7 @@ import { BUILT_IN_DRIVERS, type BuiltInDriversEnv } from "./builtInDrivers.ts";
 import * as ProviderInstanceRegistry from "./ProviderInstanceRegistry.ts";
 import * as ProviderInstanceRegistryMutator from "./ProviderInstanceRegistryMutator.ts";
 import * as ProviderOrchestrationAdapterInfrastructure from "./ProviderOrchestrationAdapterInfrastructure.ts";
+import { AGENT_BRIDGE_DRIVER_KIND } from "@t3tools/provider-agent-bridge/server";
 import * as AcpRegistrySupport from "@t3tools/provider-acp-registry/server/AcpRegistrySupport";
 import * as ProviderHostLive from "./ProviderHostLive.ts";
 import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
@@ -121,6 +122,35 @@ export const seedDevReplayInstance = Effect.fn(
   });
 });
 
+const AGENT_BRIDGE_SEEDS = [
+  { instanceId: ProviderInstanceId.make("museBot"), displayName: "Muse", accentColor: "#0081fb" },
+  {
+    instanceId: ProviderInstanceId.make("grokBot"),
+    displayName: "Grok Bot",
+    accentColor: "#737373",
+  },
+];
+
+/** Hosted agents that reach T3 only over MCP get an instance each; existing ones keep user edits. */
+const seedAgentBridgeInstances = Effect.fn(
+  "ProviderInstanceRegistryHydration.seedAgentBridgeInstances",
+)(function* () {
+  const serverSettings = yield* Settings.ServerSettingsService;
+  const existing = (yield* serverSettings.getSettings).providerInstances;
+  for (const seed of AGENT_BRIDGE_SEEDS) {
+    if (existing[seed.instanceId] !== undefined) continue;
+    yield* serverSettings.updateProviderInstance({
+      operation: "upsert",
+      instanceId: seed.instanceId,
+      instance: {
+        driver: AGENT_BRIDGE_DRIVER_KIND,
+        displayName: seed.displayName,
+        accentColor: seed.accentColor,
+      },
+    });
+  }
+});
+
 const layerSettingsWatcher = (settingsChanges: Stream.Stream<ServerSettings>) =>
   Layer.effectDiscard(
     Effect.gen(function* () {
@@ -154,6 +184,9 @@ export const layer: Layer.Layer<
     const serverSettings = yield* Settings.ServerSettingsService;
     yield* seedDevReplayInstance().pipe(
       Effect.catchCause((cause) => Effect.logWarning("Dev replay agent unavailable", cause)),
+    );
+    yield* seedAgentBridgeInstances().pipe(
+      Effect.catchCause((cause) => Effect.logWarning("Agent bridge instances not seeded", cause)),
     );
     // Subscribe before the seed read so saves during registry construction are queued.
     const settingsChanges = yield* serverSettings.subscribeChanges;

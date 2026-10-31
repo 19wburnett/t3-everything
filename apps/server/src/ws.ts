@@ -4,6 +4,7 @@ import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
 import * as PeerLinkRequests from "./peer/PeerLinkRequests.ts";
 import * as PeerLinks from "./peer/PeerLinks.ts";
+import * as CompanyChannels from "./companyChannels/CompanyChannels.ts";
 
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -1345,6 +1346,7 @@ export const layerWsRpc = (
       const secretResolver = yield* SecretResolver.SecretResolver;
       const peerLinks = yield* PeerLinks.PeerLinks;
       const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
+      const companyChannels = yield* CompanyChannels.CompanyChannels;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
@@ -2517,6 +2519,25 @@ export const layerWsRpc = (
         [WS_METHODS.peerLinksLink]: (input) => peerLinks.link(input),
         [WS_METHODS.peerLinksUnlink]: ({ environmentId }) =>
           peerLinks.unlink(environmentId).pipe(Effect.map((removed) => ({ removed }))),
+        [WS_METHODS.companyChannelsListAccounts]: ({ projectId }) =>
+          companyChannels.listAccounts(projectId).pipe(Effect.map((accounts) => ({ accounts }))),
+        [WS_METHODS.companyChannelsSaveAccount]: (input) => companyChannels.saveAccount(input),
+        [WS_METHODS.companyChannelsRemoveAccount]: (input) =>
+          companyChannels.removeAccount(input).pipe(Effect.map((removed) => ({ removed }))),
+        [WS_METHODS.companyChannelsMicrosoftSignInStart]: (input) =>
+          companyChannels.microsoftSignInStart(input),
+        [WS_METHODS.companyChannelsMicrosoftSignInWait]: ({ projectId }) =>
+          companyChannels.microsoftSignInWait(projectId),
+        [WS_METHODS.companyChannelsMicrosoftSignInCancel]: ({ projectId }) =>
+          companyChannels.microsoftSignInCancel(projectId),
+        [WS_METHODS.companyChannelsListInbox]: (input) => companyChannels.listInbox(input),
+        [WS_METHODS.companyChannelsReadMessage]: (input) => companyChannels.readMessage(input),
+        [WS_METHODS.companyChannelsListOutbox]: ({ projectId }) =>
+          companyChannels.listOutbox(projectId),
+        [WS_METHODS.companyChannelsSaveDraft]: (input) => companyChannels.saveDraft(input),
+        [WS_METHODS.companyChannelsDiscardDraft]: (input) =>
+          companyChannels.discardDraft(input).pipe(Effect.map((discarded) => ({ discarded }))),
+        [WS_METHODS.companyChannelsSend]: (input) => companyChannels.send(input),
         [WS_METHODS.peerLinksAnswerRequest]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(peerLinkRequests.answer(input)),
@@ -3290,6 +3311,7 @@ export const layer = Layer.unwrap(
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const peerLinks = yield* PeerLinks.PeerLinks;
     const peerLinkRequests = yield* PeerLinkRequests.PeerLinkRequests;
+    const companyChannels = yield* CompanyChannels.CompanyChannels;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3373,6 +3395,7 @@ export const layer = Layer.unwrap(
               ),
               Layer.provide(Layer.succeed(PeerLinks.PeerLinks, peerLinks)),
               Layer.provide(Layer.succeed(PeerLinkRequests.PeerLinkRequests, peerLinkRequests)),
+              Layer.provide(Layer.succeed(CompanyChannels.CompanyChannels, companyChannels)),
               Layer.provide(
                 SourceControlDiscovery.layer.pipe(
                   Layer.provide(

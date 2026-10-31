@@ -1,0 +1,487 @@
+import {
+  ProviderDriverKind,
+  type OrchestrationV2ProviderCapabilities,
+  type OrchestrationV2ProviderSession,
+  type OrchestrationV2ProviderThread,
+  type OrchestrationV2ProviderTurn,
+  type ProviderInstanceId,
+} from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
+
+import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
+import * as AgentBridgeHub from "./AgentBridgeHub.ts";
+
+export const AGENT_BRIDGE_DRIVER_KIND = ProviderDriverKind.make("agentBridge");
+
+const AgentBridgeProviderCapabilitiesV2 = {
+  runtimePolicy: { enforcement: "client-boundary" },
+  sessions: {
+    supportsMultipleProviderThreadsPerSession: false,
+    supportsModelSwitchInSession: true,
+    supportsProviderSwitchingViaHandoff: false,
+    supportsRuntimeModeSwitchInSession: true,
+    pendingRequestsSurviveRestart: false,
+  },
+  threads: {
+    canCreateEmptyThread: true,
+    canReadThreadSnapshot: false,
+    canRollbackThread: false,
+    canForkThread: false,
+    canForkFromTurn: false,
+    canForkFromSubagentThread: false,
+    exposesNativeThreadId: false,
+  },
+  turns: {
+    exposesNativeTurnId: false,
+    emitsTurnStarted: true,
+    emitsTurnCompleted: true,
+    supportsInterrupt: true,
+    supportsActiveSteering: true,
+    supportsSteeringByInterruptRestart: false,
+    supportsQueuedMessages: true,
+    terminalStatusQuality: "strong",
+  },
+  streaming: {
+    streamsAssistantText: false,
+    streamsReasoning: false,
+    streamsToolOutput: false,
+    streamsPlanText: false,
+    emitsMessageCompleted: true,
+  },
+  tools: {
+    exposesToolItemIds: false,
+    emitsToolStarted: false,
+    emitsToolCompleted: false,
+    emitsToolOutput: false,
+    supportsMcpTools: false,
+    supportsDynamicToolCallbacks: false,
+  },
+  approvals: {
+    supportsCommandApproval: false,
+    supportsFileReadApproval: false,
+    supportsFileChangeApproval: false,
+    supportsApplyPatchApproval: false,
+    approvalsHaveNativeRequestIds: false,
+    approvalCallbacksAreLiveOnly: false,
+    approvalsCanOriginateFromSubagents: false,
+  },
+  planning: {
+    emitsPlanUpdated: false,
+    emitsTodoList: false,
+    emitsProposedPlan: false,
+    supportsStructuredQuestions: false,
+    planDeltasHaveItemIds: false,
+  },
+  subagents: {
+    supportsSubagents: false,
+    exposesSubagentThreadIds: false,
+    emitsSubagentLifecycle: false,
+    canWaitForSubagents: false,
+    canCloseSubagents: false,
+    canForkSubagentThread: false,
+  },
+  context: {
+    acceptsSystemContext: false,
+    acceptsDeveloperContext: false,
+    acceptsSyntheticUserContext: false,
+    canGenerateSummaries: false,
+    canConsumeHandoffSummaries: false,
+    supportsDeltaHandoff: false,
+    supportsFullThreadHandoff: false,
+    maxRecommendedHandoffChars: null,
+  },
+  checkpointing: {
+    appCanCheckpointFilesystem: false,
+    supportsNestedCheckpointScopes: false,
+    providerCanRollbackConversation: false,
+    providerRollbackReturnsSnapshot: false,
+    providerCanReadConversationSnapshot: false,
+  },
+  identity: {
+    nativeThreadIds: "weak",
+    nativeTurnIds: "weak",
+    nativeItemIds: "weak",
+    nativeRequestIds: "weak",
+  },
+} satisfies OrchestrationV2ProviderCapabilities;
+
+const nativeRef = (nativeId: string) => ({
+  driver: AGENT_BRIDGE_DRIVER_KIND,
+  nativeId,
+  strength: "weak" as const,
+});
+
+interface ActiveTurn {
+  readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
+  providerTurn: OrchestrationV2ProviderTurn;
+  nextOrdinal: number;
+}
+
+const bridgeMessage = Effect.fnUntraced(function* (
+  message: ProviderAdapter.ProviderAdapterV2TurnMessage,
+) {
+  return {
+    messageId: message.messageId,
+    text: message.text,
+    attachmentNames: message.attachments.map((attachment) => attachment.name),
+    createdAt: yield* DateTime.now,
+  } satisfies AgentBridgeHub.AgentBridgeMessage;
+});
+
+export const makeAgentBridgeAdapterV2 = Effect.fn("makeAgentBridgeAdapterV2")(function* (options: {
+  readonly instanceId: ProviderInstanceId;
+}) {
+  const idAllocator = yield* IdAllocator.IdAllocatorV2;
+  const hub = yield* AgentBridgeHub.AgentBridgeHub;
+  const providerHost = yield* ProviderHost.ProviderHost;
+  const driver = AGENT_BRIDGE_DRIVER_KIND;
+  const protocolError = (
+    detail: string,
+    reason?: ProviderAdapter.ProviderAdapterProtocolError["reason"],
+  ) =>
+    new ProviderAdapter.ProviderAdapterProtocolError({
+      driver,
+      detail,
+      ...(reason === undefined ? {} : { reason }),
+    });
+
+  return ProviderAdapter.ProviderAdapterV2.of({
+    instanceId: options.instanceId,
+    driver,
+    getCapabilities: Effect.fn("AgentBridgeAdapter.getCapabilities")(function () {
+      return Effect.succeed(AgentBridgeProviderCapabilitiesV2);
+    }),
+    planSelectionTransition: Effect.fn("AgentBridgeAdapter.planSelectionTransition")(function () {
+      return Effect.succeed(turnScopedSelectionTransition());
+    }),
+    openSession: Effect.fn("AgentBridgeAdapter.openSession")(function* (
+      input: ProviderAdapter.ProviderAdapterV2OpenSessionInput,
+    ) {
+      const now = yield* DateTime.now;
+      let session: OrchestrationV2ProviderSession = {
+        id: input.providerSessionId,
+        driver,
+        providerInstanceId: options.instanceId,
+        status: "ready",
+        cwd: input.runtimePolicy.cwd ?? providerHost.paths.cwd,
+        model: input.modelSelection.model,
+        capabilities: AgentBridgeProviderCapabilitiesV2,
+        createdAt: now,
+        updatedAt: now,
+        lastError: null,
+      };
+      const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
+      let thread: OrchestrationV2ProviderThread | undefined;
+      let active: ActiveTurn | undefined;
+      const emit = (event: ProviderAdapter.ProviderAdapterV2Event) =>
+        Queue.offer(events, event).pipe(Effect.asVoid);
+
+      // Per-event helpers share the calling operation's span.
+      const updateThread = Effect.fnUntraced(function* (
+        patch: Partial<OrchestrationV2ProviderThread>,
+      ) {
+        if (!thread) return;
+        thread = { ...thread, ...patch, updatedAt: yield* DateTime.now };
+        yield* emit({ type: "provider_thread.updated", driver, providerThread: thread });
+      });
+      const updateSession = Effect.fnUntraced(function* (
+        status: OrchestrationV2ProviderSession["status"],
+      ) {
+        session = { ...session, status, updatedAt: yield* DateTime.now };
+        yield* emit({ type: "provider_session.updated", driver, providerSession: session });
+      });
+      const postAssistantMessage = Effect.fnUntraced(function* (turn: ActiveTurn, text: string) {
+        const time = yield* DateTime.now;
+        const ordinal = turn.nextOrdinal++;
+        const identity = `${options.instanceId}:${turn.providerTurn.id}:reply:${ordinal}`;
+        const ids = { driver, nativeItemId: identity };
+        const messageId = idAllocator.derive.messageFromProviderItem(ids);
+        const nodeId = idAllocator.derive.nodeFromProviderItem(ids);
+        const { threadId, runId, rootNodeId } = turn.input;
+        yield* emit({
+          type: "message.updated",
+          driver,
+          message: {
+            id: messageId,
+            threadId,
+            runId,
+            nodeId,
+            role: "assistant",
+            text,
+            attachments: [],
+            streaming: false,
+            createdBy: "agent",
+            creationSource: "provider",
+            createdAt: time,
+            updatedAt: time,
+          },
+        });
+        yield* emit({
+          type: "node.updated",
+          driver,
+          node: {
+            id: nodeId,
+            threadId,
+            runId,
+            parentNodeId: rootNodeId,
+            rootNodeId,
+            kind: "assistant_message",
+            status: "completed",
+            countsForRun: false,
+            providerThreadId: turn.providerTurn.providerThreadId,
+            providerTurnId: turn.providerTurn.id,
+            nativeItemRef: nativeRef(identity),
+            runtimeRequestId: null,
+            checkpointScopeId: null,
+            startedAt: time,
+            completedAt: time,
+          },
+        });
+        yield* emit({
+          type: "turn_item.updated",
+          driver,
+          turnItem: {
+            id: idAllocator.derive.turnItemFromProviderItem(ids),
+            nodeId,
+            threadId,
+            runId,
+            providerThreadId: turn.providerTurn.providerThreadId,
+            providerTurnId: turn.providerTurn.id,
+            nativeItemRef: nativeRef(identity),
+            parentItemId: null,
+            ordinal,
+            status: "completed",
+            title: null,
+            startedAt: time,
+            completedAt: time,
+            updatedAt: time,
+            type: "assistant_message",
+            messageId,
+            text,
+            streaming: false,
+          },
+        });
+      });
+      const finish = Effect.fnUntraced(function* (
+        turn: ActiveTurn,
+        status: "completed" | "interrupted",
+      ) {
+        if (active !== turn) return;
+        active = undefined;
+        turn.providerTurn = { ...turn.providerTurn, status, completedAt: yield* DateTime.now };
+        yield* emit({
+          type: "provider_turn.updated",
+          driver,
+          threadId: turn.input.threadId,
+          providerTurn: turn.providerTurn,
+        });
+        yield* updateThread({ status: "idle" });
+        yield* updateSession("ready");
+        yield* emit({
+          type: "turn.terminal",
+          driver,
+          providerThreadId: turn.providerTurn.providerThreadId,
+          providerTurnId: turn.providerTurn.id,
+          runOrdinal: turn.input.runOrdinal,
+          status,
+          failure: null,
+          threadDisposition: "reusable",
+        });
+      });
+      const attach = (providerThread: OrchestrationV2ProviderThread) => {
+        thread = { ...providerThread, providerSessionId: input.providerSessionId };
+        return thread;
+      };
+      const ownsThread = (candidate: OrchestrationV2ProviderThread) =>
+        thread !== undefined && candidate.id === thread.id;
+
+      yield* Effect.addFinalizer(() => {
+        const turn = active;
+        if (!turn) return Effect.void;
+        active = undefined;
+        return hub
+          .close({
+            instanceId: options.instanceId,
+            threadId: turn.input.threadId,
+            providerTurnId: turn.providerTurn.id,
+            interrupted: false,
+          })
+          .pipe(Effect.asVoid);
+      });
+
+      const start = Effect.fnUntraced(function* (
+        turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
+      ) {
+        if (!ownsThread(turnInput.providerThread))
+          return yield* protocolError("This thread is not attached to the agent bridge session");
+        if (active)
+          return yield* protocolError(
+            "The agent already has an open task; queue through the orchestrator",
+            "previous_turn_active",
+          );
+        const startedAt = yield* DateTime.now;
+        const turn: ActiveTurn = {
+          input: turnInput,
+          providerTurn: {
+            id: idAllocator.derive.providerTurn({
+              driver,
+              nativeTurnId: `${options.instanceId}:${turnInput.threadId}:${turnInput.attemptId}`,
+            }),
+            providerThreadId: turnInput.providerThread.id,
+            nodeId: turnInput.rootNodeId,
+            runAttemptId: turnInput.attemptId,
+            nativeTurnRef: nativeRef(turnInput.attemptId),
+            ordinal: turnInput.providerTurnOrdinal,
+            status: "running",
+            startedAt,
+            completedAt: null,
+          },
+          nextOrdinal: turnInput.providerTurnOrdinal * 100 + 1,
+        };
+        active = turn;
+        thread = turnInput.providerThread;
+        yield* emit({
+          type: "provider_turn.updated",
+          driver,
+          threadId: turnInput.threadId,
+          providerTurn: turn.providerTurn,
+        });
+        yield* updateThread({
+          status: "active",
+          firstRunOrdinal: thread.firstRunOrdinal ?? turnInput.runOrdinal,
+          lastRunOrdinal: turnInput.runOrdinal,
+        });
+        yield* updateSession("running");
+        yield* hub.open({
+          instanceId: options.instanceId,
+          threadId: turnInput.threadId,
+          providerTurnId: turn.providerTurn.id,
+          message: yield* bridgeMessage(turnInput.message),
+          reply: Effect.fnUntraced(function* ({ text, done }) {
+            if (active !== turn) return;
+            if (text.trim()) yield* postAssistantMessage(turn, text);
+            if (done) yield* finish(turn, "completed");
+          }),
+        });
+      });
+
+      const runtime: ProviderAdapter.ProviderAdapterV2SessionRuntime = {
+        instanceId: options.instanceId,
+        driver,
+        providerSessionId: input.providerSessionId,
+        providerSession: session,
+        events: Stream.fromQueue(events),
+        ensureThread: Effect.fn("AgentBridgeAdapter.ensureThread")(function* (args) {
+          if (args.existingProviderThread) return attach(args.existingProviderThread);
+          if (thread && thread.appThreadId === args.threadId) return thread;
+          const createdAt = yield* DateTime.now;
+          const created = attach({
+            id: idAllocator.derive.providerThread({
+              driver,
+              providerInstanceId: options.instanceId,
+              nativeThreadId: args.threadId,
+            }),
+            driver,
+            providerInstanceId: options.instanceId,
+            providerSessionId: input.providerSessionId,
+            appThreadId: args.threadId,
+            ownerNodeId: null,
+            nativeThreadRef: nativeRef(args.threadId),
+            nativeConversationHeadRef: null,
+            status: "idle",
+            firstRunOrdinal: null,
+            lastRunOrdinal: null,
+            handoffIds: [],
+            forkedFrom: null,
+            createdAt,
+            updatedAt: createdAt,
+          });
+          yield* emit({ type: "provider_thread.updated", driver, providerThread: created });
+          return created;
+        }),
+        resumeThread: Effect.fn("AgentBridgeAdapter.resumeThread")(function (args) {
+          return Effect.sync(() => attach(args.providerThread));
+        }),
+        startTurn: (args) =>
+          start(args).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapter.ProviderAdapterTurnStartError({
+                  driver,
+                  threadId: args.threadId,
+                  providerThreadId: args.providerThread.id,
+                  runId: args.runId,
+                  cause,
+                }),
+            ),
+          ),
+        steerTurn: Effect.fn("AgentBridgeAdapter.steerTurn")(function* (args) {
+          const steered = yield* hub.steer({
+            instanceId: options.instanceId,
+            threadId: args.threadId,
+            providerTurnId: args.providerTurnId,
+            message: yield* bridgeMessage(args.message),
+          });
+          if (!steered)
+            return yield* new ProviderAdapter.ProviderAdapterSteerRunError({
+              driver,
+              providerThreadId: args.providerThread.id,
+              providerTurnId: args.providerTurnId,
+              cause: "The agent's task already ended.",
+            });
+        }),
+        interruptTurn: Effect.fn("AgentBridgeAdapter.interruptTurn")(function* (args) {
+          const turn = active;
+          if (!turn || turn.providerTurn.id !== args.providerTurnId) return;
+          const closed = yield* hub.close({
+            instanceId: options.instanceId,
+            threadId: turn.input.threadId,
+            providerTurnId: turn.providerTurn.id,
+            interrupted: true,
+          });
+          if (closed) yield* finish(turn, "interrupted");
+        }),
+        respondToRuntimeRequest: (args) =>
+          Effect.fail(
+            new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({
+              driver,
+              requestId: args.requestId,
+              cause: "The agent bridge has no runtime requests.",
+            }),
+          ),
+        readThreadSnapshot: (args) =>
+          Effect.fail(
+            new ProviderAdapter.ProviderAdapterReadThreadSnapshotError({
+              driver,
+              providerThreadId: args.providerThread.id,
+              cause: "The agent bridge keeps no conversation of its own to read.",
+            }),
+          ),
+        rollbackThread: (args) =>
+          Effect.fail(
+            new ProviderAdapter.ProviderAdapterRollbackThreadError({
+              driver,
+              providerThreadId: args.providerThread.id,
+              checkpointId: args.target.checkpointId,
+              cause: "The agent bridge does not support conversation rollback.",
+            }),
+          ),
+        forkThread: (args) =>
+          Effect.fail(
+            new ProviderAdapter.ProviderAdapterForkThreadError({
+              driver,
+              providerThreadId: args.sourceProviderThread.id,
+              cause: "The agent bridge does not support native forks.",
+            }),
+          ),
+      };
+      return runtime;
+    }),
+  });
+});

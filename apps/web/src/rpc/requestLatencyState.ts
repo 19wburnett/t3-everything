@@ -33,12 +33,18 @@ const untrackedRpcAckMethods = new Set<string>([
   WS_METHODS.serverGetUsageSummary,
   WS_METHODS.serverReportClientActivity,
   WS_METHODS.sourceControlSignInWait,
+  WS_METHODS.companyChannelsMicrosoftSignInWait,
 ]);
 const longRunningRpcAckMethods = new Set<string>([
   WS_METHODS.serverUpdateProvider,
   WS_METHODS.serverRefreshProviders,
   WS_METHODS.serverUpdateServer,
   WS_METHODS.vcsRefreshStatus,
+  // Each one signs in to a mail server or a social API.
+  WS_METHODS.companyChannelsSaveAccount,
+  WS_METHODS.companyChannelsListInbox,
+  WS_METHODS.companyChannelsReadMessage,
+  WS_METHODS.companyChannelsSend,
 ]);
 
 const slowRpcAckRequestsAtom = Atom.make<ReadonlyArray<SlowRpcAckRequest>>([]).pipe(

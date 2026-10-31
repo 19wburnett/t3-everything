@@ -1,5 +1,9 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
+  deriveLogicalProjectKeyFromSettings,
+  selectProjectGroupingSettings,
+} from "@t3tools/client-runtime/state/project-grouping";
+import {
   getNewProjectRepository,
   type NewProjectPublishTarget,
 } from "@t3tools/client-runtime/operations/projects";
@@ -8,6 +12,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId } from "@t3tools/contracts";
+import { useNavigate } from "@tanstack/react-router";
 
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { waitForProject } from "~/state/entities";
@@ -15,6 +20,8 @@ import { projectEnvironment } from "~/state/projects";
 import { sourceControlEnvironment } from "~/state/sourceControl";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { useNewThreadHandler } from "./useHandleNewThread";
+import { getClientSettings } from "./useSettings";
+import { useWriteCompanyBrain } from "../components/companyHub/useWriteCompanyBrain";
 import { suggestAppAccessForRemote } from "../components/sourceControlAppAccessToast";
 
 function errorMessage(error: unknown): string {
@@ -29,6 +36,8 @@ export function useNewProject() {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
+  const writeCompanyBrain = useWriteCompanyBrain();
+  const navigate = useNavigate();
 
   const publishNewRepository = async (input: {
     readonly environmentId: EnvironmentId;
@@ -70,6 +79,7 @@ export function useNewProject() {
   return async (input: {
     readonly environmentId: EnvironmentId;
     readonly name: string;
+    readonly kind: "project" | "company";
     readonly publishTo: NewProjectPublishTarget | null;
   }): Promise<boolean> => {
     const result = await createNew({
@@ -81,7 +91,7 @@ export function useNewProject() {
         toastManager.add(
           stackedThreadToast({
             type: "error",
-            title: "Could not create the project",
+            title: `Could not create the ${input.kind}`,
             description: errorMessage(squashAtomCommandFailure(result)),
           }),
         );
@@ -101,7 +111,7 @@ export function useNewProject() {
             },
       ),
     );
-    if (input.publishTo) {
+    if (input.publishTo && input.kind === "project") {
       void publishNewRepository({
         environmentId: input.environmentId,
         workspaceRoot,
@@ -122,6 +132,19 @@ export function useNewProject() {
       return null;
     });
     if (project === null) return true;
+    if (input.kind === "company") {
+      await writeCompanyBrain({ environmentId: input.environmentId, workspaceRoot });
+      await navigate({
+        to: "/company/$projectKey",
+        params: {
+          projectKey: deriveLogicalProjectKeyFromSettings(
+            project,
+            selectProjectGroupingSettings(getClientSettings()),
+          ),
+        },
+      });
+      return true;
+    }
     await handleNewThread(projectRef).catch((error: unknown) => {
       toastManager.add(
         stackedThreadToast({

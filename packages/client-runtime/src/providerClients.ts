@@ -5,6 +5,7 @@ import {
   isProviderDriverKind,
   ProviderDriverKind,
 } from "@t3tools/contracts";
+import { agentBridgeClient } from "@t3tools/provider-agent-bridge/client";
 import { acpRegistryClient } from "@t3tools/provider-acp-registry/client";
 import { makeProviderClientRegistry } from "@t3tools/provider-core/client";
 import { modelShortName } from "@t3tools/provider-core/modelShortName";
@@ -43,6 +44,7 @@ export const providerClients = makeProviderClientRegistry([
   },
   museClient,
   piClient,
+  agentBridgeClient,
   acpRegistryClient,
 ]);
 

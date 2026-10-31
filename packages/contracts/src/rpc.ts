@@ -27,6 +27,26 @@ import {
   PeerLinkSummary,
 } from "./peerLink.ts";
 import {
+  CompanyChannelAccount,
+  CompanyChannelAccountList,
+  CompanyChannelAccountRemoveInput,
+  CompanyChannelAccountRemoveResult,
+  CompanyChannelAccountSaveInput,
+  CompanyChannelError,
+  CompanyChannelsProjectInput,
+  CompanyDraft,
+  CompanyDraftDiscardResult,
+  CompanyDraftInput,
+  CompanyDraftSaveInput,
+  CompanyInboxList,
+  CompanyInboxListInput,
+  CompanyInboxMessage,
+  CompanyMessageReadInput,
+  CompanyMicrosoftSignInPrompt,
+  CompanyMicrosoftSignInStartInput,
+  CompanyOutbox,
+} from "./companyChannels.ts";
+import {
   ChatGptReconnectProfileInput,
   ChatGptReconnectProfile,
   ChatGptImportProfileInput,
@@ -520,6 +540,18 @@ export const WS_METHODS = {
   peerLinksLink: "peerLinks.link",
   peerLinksUnlink: "peerLinks.unlink",
   peerLinksAnswerRequest: "peerLinks.answerRequest",
+  companyChannelsListAccounts: "companyChannels.listAccounts",
+  companyChannelsSaveAccount: "companyChannels.saveAccount",
+  companyChannelsRemoveAccount: "companyChannels.removeAccount",
+  companyChannelsMicrosoftSignInStart: "companyChannels.microsoftSignInStart",
+  companyChannelsMicrosoftSignInWait: "companyChannels.microsoftSignInWait",
+  companyChannelsMicrosoftSignInCancel: "companyChannels.microsoftSignInCancel",
+  companyChannelsListInbox: "companyChannels.listInbox",
+  companyChannelsReadMessage: "companyChannels.readMessage",
+  companyChannelsListOutbox: "companyChannels.listOutbox",
+  companyChannelsSaveDraft: "companyChannels.saveDraft",
+  companyChannelsDiscardDraft: "companyChannels.discardDraft",
+  companyChannelsSend: "companyChannels.send",
   serverUpdateSettings: "server.updateSettings",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverSearchAcpRegistry: "server.searchAcpRegistry",
@@ -831,6 +863,91 @@ const WsPeerLinksUnlinkRpc = Rpc.make(WS_METHODS.peerLinksUnlink, {
 const WsPeerLinksAnswerRequestRpc = Rpc.make(WS_METHODS.peerLinksAnswerRequest, {
   payload: PeerLinkRequestAnswerInput,
   error: Schema.Union([PeerLinkRequestError, EnvironmentAuthorizationError]),
+});
+
+const companyChannelErrors = Schema.Union([CompanyChannelError, EnvironmentAuthorizationError]);
+
+const WsCompanyChannelsListAccountsRpc = Rpc.make(WS_METHODS.companyChannelsListAccounts, {
+  payload: CompanyChannelsProjectInput,
+  success: CompanyChannelAccountList,
+  error: companyChannelErrors,
+});
+
+const WsCompanyChannelsSaveAccountRpc = Rpc.make(WS_METHODS.companyChannelsSaveAccount, {
+  payload: CompanyChannelAccountSaveInput,
+  success: CompanyChannelAccount,
+  error: companyChannelErrors,
+});
+
+const WsCompanyChannelsRemoveAccountRpc = Rpc.make(WS_METHODS.companyChannelsRemoveAccount, {
+  payload: CompanyChannelAccountRemoveInput,
+  success: CompanyChannelAccountRemoveResult,
+  error: companyChannelErrors,
+});
+
+// Starts a device-code sign-in the server finishes on its own, so a client can leave meanwhile.
+const WsCompanyChannelsMicrosoftSignInStartRpc = Rpc.make(
+  WS_METHODS.companyChannelsMicrosoftSignInStart,
+  {
+    payload: CompanyMicrosoftSignInStartInput,
+    success: CompanyMicrosoftSignInPrompt,
+    error: companyChannelErrors,
+  },
+);
+
+// Resolves with the saved account when the project's sign-in ends, however long the user takes.
+const WsCompanyChannelsMicrosoftSignInWaitRpc = Rpc.make(
+  WS_METHODS.companyChannelsMicrosoftSignInWait,
+  {
+    payload: CompanyChannelsProjectInput,
+    success: CompanyChannelAccount,
+    error: companyChannelErrors,
+  },
+);
+
+const WsCompanyChannelsMicrosoftSignInCancelRpc = Rpc.make(
+  WS_METHODS.companyChannelsMicrosoftSignInCancel,
+  {
+    payload: CompanyChannelsProjectInput,
+    error: companyChannelErrors,
+  },
+);
+
+const WsCompanyChannelsListInboxRpc = Rpc.make(WS_METHODS.companyChannelsListInbox, {
+  payload: CompanyInboxListInput,
+  success: CompanyInboxList,
+  error: companyChannelErrors,
+});
+
+const WsCompanyChannelsReadMessageRpc = Rpc.make(WS_METHODS.companyChannelsReadMessage, {
+  payload: CompanyMessageReadInput,
+  success: CompanyInboxMessage,
+  error: companyChannelErrors,
+});
+
+const WsCompanyChannelsListOutboxRpc = Rpc.make(WS_METHODS.companyChannelsListOutbox, {
+  payload: CompanyChannelsProjectInput,
+  success: CompanyOutbox,
+  error: companyChannelErrors,
+});
+
+const WsCompanyChannelsSaveDraftRpc = Rpc.make(WS_METHODS.companyChannelsSaveDraft, {
+  payload: CompanyDraftSaveInput,
+  success: CompanyDraft,
+  error: companyChannelErrors,
+});
+
+const WsCompanyChannelsDiscardDraftRpc = Rpc.make(WS_METHODS.companyChannelsDiscardDraft, {
+  payload: CompanyDraftInput,
+  success: CompanyDraftDiscardResult,
+  error: companyChannelErrors,
+});
+
+// A provider refusing the send is not an error here: the draft comes back `failed` with why.
+const WsCompanyChannelsSendRpc = Rpc.make(WS_METHODS.companyChannelsSend, {
+  payload: CompanyDraftInput,
+  success: CompanyDraft,
+  error: companyChannelErrors,
 });
 
 const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
@@ -2056,6 +2173,18 @@ export const WsRpcGroup = RpcGroup.make(
   WsPeerLinksLinkRpc,
   WsPeerLinksUnlinkRpc,
   WsPeerLinksAnswerRequestRpc,
+  WsCompanyChannelsListAccountsRpc,
+  WsCompanyChannelsSaveAccountRpc,
+  WsCompanyChannelsRemoveAccountRpc,
+  WsCompanyChannelsMicrosoftSignInStartRpc,
+  WsCompanyChannelsMicrosoftSignInWaitRpc,
+  WsCompanyChannelsMicrosoftSignInCancelRpc,
+  WsCompanyChannelsListInboxRpc,
+  WsCompanyChannelsReadMessageRpc,
+  WsCompanyChannelsListOutboxRpc,
+  WsCompanyChannelsSaveDraftRpc,
+  WsCompanyChannelsDiscardDraftRpc,
+  WsCompanyChannelsSendRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerSearchAcpRegistryRpc,
   WsServerPrepareAcpRegistryAgentRpc,

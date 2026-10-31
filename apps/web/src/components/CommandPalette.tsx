@@ -53,6 +53,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
   BugIcon,
+  BuildingIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -251,6 +252,9 @@ import { threadRecentUse } from "@t3tools/shared/paletteSearch";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 const ADD_PROJECT_ENTRY_GROUP = "add-project";
+const NEW_COMPANY_SEARCH_TERMS = ["new company", "create company", "business", "brain", "agents"];
+const NEW_COMPANY_DESCRIPTION =
+  "A folder for a company's agents, brain, and channels. No GitHub needed.";
 const NEW_THREAD_IN_GROUP = "projects";
 
 /** The submenu an open intent starts in; its groups resolve while rendering. */
@@ -490,6 +494,7 @@ function OpenCommandPaletteDialog(props: {
   const [isPickingProjectFolder, setIsPickingProjectFolder] = useState(false);
   const [addProjectCloneFlow, setAddProjectCloneFlow] = useState<AddProjectCloneFlow | null>(null);
   const [newProjectFlow, setNewProjectFlow] = useState<{
+    readonly kind: "project" | "company";
     readonly environmentId: EnvironmentId;
     readonly sourcesEnvironmentId: EnvironmentId | null;
   } | null>(null);
@@ -951,14 +956,20 @@ function OpenCommandPaletteDialog(props: {
   const startNewProject = (
     environmentId: EnvironmentId,
     sourcesEnvironmentId: EnvironmentId | null,
+    kind: "project" | "company",
   ): void => {
     setAddProjectEnvironmentId(environmentId);
     setAddProjectCloneFlow(null);
-    setNewProjectFlow({ environmentId, sourcesEnvironmentId });
+    setNewProjectFlow({ kind, environmentId, sourcesEnvironmentId });
     setNewProjectPublishes(false);
     setNewProjectPublishKind(null);
     pushPaletteView({
-      addonIcon: <FolderGit2Icon className={ADDON_ICON_CLASS} />,
+      addonIcon:
+        kind === "company" ? (
+          <BuildingIcon className={ADDON_ICON_CLASS} />
+        ) : (
+          <FolderGit2Icon className={ADDON_ICON_CLASS} />
+        ),
       groups: [],
     });
   };
@@ -997,7 +1008,19 @@ function OpenCommandPaletteDialog(props: {
         icon: <FolderGit2Icon className={ITEM_ICON_CLASS} />,
         keepOpen: true,
         run: async () => {
-          startNewProject(environmentId, environmentId);
+          startNewProject(environmentId, environmentId, "project");
+        },
+      });
+      sourceItems.splice(1, 0, {
+        kind: "action",
+        value: `action:add-project:${environmentId}:new-company`,
+        searchTerms: NEW_COMPANY_SEARCH_TERMS,
+        title: "New company",
+        description: NEW_COMPANY_DESCRIPTION,
+        icon: <BuildingIcon className={ITEM_ICON_CLASS} />,
+        keepOpen: true,
+        run: async () => {
+          startNewProject(environmentId, environmentId, "company");
         },
       });
     }
@@ -1203,9 +1226,9 @@ function OpenCommandPaletteDialog(props: {
     }
   };
 
-  const openNewProjectFlow = () => {
+  const openNewProjectFlow = (kind: "project" | "company") => {
     const firstOption = newProjectEnvironmentOptions[0];
-    if (firstOption) startNewProject(firstOption.environmentId, null);
+    if (firstOption) startNewProject(firstOption.environmentId, null, kind);
   };
 
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
@@ -1469,7 +1492,19 @@ function OpenCommandPaletteDialog(props: {
       icon: <FolderGit2Icon className={ITEM_ICON_CLASS} />,
       keepOpen: true,
       run: async () => {
-        openNewProjectFlow();
+        openNewProjectFlow("project");
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:new-company",
+      searchTerms: NEW_COMPANY_SEARCH_TERMS,
+      title: "New company",
+      description: NEW_COMPANY_DESCRIPTION,
+      icon: <BuildingIcon className={ITEM_ICON_CLASS} />,
+      keepOpen: true,
+      run: async () => {
+        openNewProjectFlow("company");
       },
     });
   }
@@ -1619,6 +1654,20 @@ function OpenCommandPaletteDialog(props: {
   }
   const contextualProjectGroup = currentProjectGroup ?? projectGroups[0] ?? null;
   if (contextualProjectGroup) {
+    actionItems.push({
+      kind: "action",
+      value: "action:company-hub",
+      searchTerms: ["company", "hub", "brain", "work", "agents", "muse", "grok", "outbound"],
+      title: "Company hub",
+      description: contextualProjectGroup.displayName,
+      icon: <BuildingIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        await navigate({
+          to: "/company/$projectKey",
+          params: { projectKey: contextualProjectGroup.projectKey },
+        });
+      },
+    });
     actionItems.push({
       kind: "action",
       value: "action:project-settings",
@@ -1905,6 +1954,7 @@ function OpenCommandPaletteDialog(props: {
       createNewProject({
         environmentId: newProjectFlow.environmentId,
         name: newProjectName,
+        kind: newProjectFlow.kind,
         publishTo: newProjectPublishes ? newProjectPublishTarget : null,
       }),
     );
@@ -2230,7 +2280,9 @@ function OpenCommandPaletteDialog(props: {
           ],
         };
   const newProjectOptionGroups: CommandPaletteView["groups"] =
-    newProjectPublishTarget === null || newProjectPathPreview === null
+    newProjectPublishTarget === null ||
+    newProjectPathPreview === null ||
+    newProjectFlow?.kind === "company"
       ? []
       : [
           {
@@ -2296,7 +2348,9 @@ function OpenCommandPaletteDialog(props: {
 
   const inputPlaceholder =
     newProjectFlow !== null
-      ? "Project name"
+      ? newProjectFlow.kind === "company"
+        ? "Company name"
+        : "Project name"
       : (remoteProjectInputPlaceholder(addProjectCloneFlow) ??
         getCommandPaletteInputPlaceholder(paletteMode));
   const isSubmenu = paletteMode === "submenu" || paletteMode === "submenu-browse";
@@ -2785,6 +2839,7 @@ function OpenCommandPaletteDialog(props: {
           pathPreview={newProjectPathPreview}
           projectsRoot={newProjectsRoot}
           environmentLabel={newProjectEnvironmentLabel}
+          kind={newProjectFlow?.kind ?? "project"}
         />
       ) : null}
       {addProjectCloneFlow?.step === "confirm" ? (

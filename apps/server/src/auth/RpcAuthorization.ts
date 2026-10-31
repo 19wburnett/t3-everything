@@ -86,6 +86,11 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.serverGetStorageCleanupReport]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetDatabaseStorage]: AuthOrchestrationReadScope,
   [WS_METHODS.peerLinksList]: AuthAccessReadScope,
+  // Mail is as private as the host's files, so a viewer of threads cannot read it.
+  [WS_METHODS.companyChannelsListAccounts]: AuthFilesystemReadScope,
+  [WS_METHODS.companyChannelsListInbox]: AuthFilesystemReadScope,
+  [WS_METHODS.companyChannelsReadMessage]: AuthFilesystemReadScope,
+  [WS_METHODS.companyChannelsListOutbox]: AuthFilesystemReadScope,
   [WS_METHODS.serverUpdateSettings]: AuthSettingsWriteScope,
   [WS_METHODS.serverSearchAcpRegistry]: AuthOrchestrationReadScope,
   [WS_METHODS.serverPrepareAcpRegistryAgent]: AuthProvidersManageScope,

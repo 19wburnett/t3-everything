@@ -2,6 +2,10 @@ import {
   AcpRegistryDriver,
   type AcpRegistryDriverEnv,
 } from "@t3tools/provider-acp-registry/server";
+import {
+  AgentBridgeDriver,
+  type AgentBridgeDriverEnv,
+} from "@t3tools/provider-agent-bridge/server";
 import { AntigravityDriver, type AntigravityDriverEnv } from "./Drivers/AntigravityDriver.ts";
 import { ClaudeDriver, type ClaudeDriverEnv } from "./Drivers/ClaudeDriver.ts";
 import { CodexDriver, type CodexDriverEnv } from "./Drivers/CodexDriver.ts";
@@ -18,6 +22,7 @@ import type {
 
 export type BuiltInDriversEnv =
   | AcpRegistryDriverEnv
+  | AgentBridgeDriverEnv
   | AntigravityDriverEnv
   | ClaudeDriverEnv
   | CodexDriverEnv
@@ -38,6 +43,7 @@ export const BUILT_IN_DRIVERS: ReadonlyArray<AnyProviderDriver<BuiltInDriversEnv
   AntigravityDriver,
   PiDriver,
   MuseDriver,
+  AgentBridgeDriver,
   AcpRegistryDriver,
 ];
 
