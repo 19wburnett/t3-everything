@@ -4,6 +4,7 @@ import {
   MessageId,
   ProjectId,
   ProviderInstanceId,
+  type RuntimeRequestId,
   ThreadId,
 } from "@t3tools/contracts";
 import { AGENT_BRIDGE_DRIVER_KIND } from "@t3tools/provider-agent-bridge/server";
@@ -71,7 +72,7 @@ export function toShareExchanges(
 const BRAIN_FILES = ["company/BRAIN.md", "company/CHANNELS.md"] as const;
 const BRAIN_FILE_MAX_CHARS = 8_000;
 const INSTRUCTIONS =
-  "Do each task, then post results with t3_bridge_reply (one call per message) and set done: true when the task is finished. If you need the user's approval or input, ask in a reply and set done: true; their answer arrives as a new task.";
+  "Do each task, then post results with t3_bridge_reply (one call per message) and set done: true when the task is finished. Before anything the user should approve, such as sending, publishing, or paying, call t3_bridge_request_approval and leave the task open; the decision arrives here as a message on the same task, starting with Approved or Declined. If you need other input, ask in a reply and set done: true; their answer arrives as a new task.";
 
 export interface AgentBridgeInboxTask {
   readonly threadId: ThreadId;
@@ -107,6 +108,17 @@ export class AgentBridgeService extends Context.Service<
       readonly done: boolean;
     }) => Effect.Effect<
       { readonly completed: boolean; readonly unreadMessages: number },
+      | AgentBridgeUnknownAgentError
+      | AgentBridgeHub.AgentBridgeNoOpenTaskError
+      | AgentBridgeHub.AgentBridgeTaskInterruptedError
+    >;
+    readonly requestApproval: (input: {
+      readonly agent: string;
+      readonly threadId: ThreadId;
+      readonly action: string;
+      readonly reason: string | undefined;
+    }) => Effect.Effect<
+      { readonly requestId: RuntimeRequestId },
       | AgentBridgeUnknownAgentError
       | AgentBridgeHub.AgentBridgeNoOpenTaskError
       | AgentBridgeHub.AgentBridgeTaskInterruptedError
@@ -245,6 +257,15 @@ const make = Effect.gen(function* () {
         threadId: input.threadId,
         text: input.text,
         done: input.done,
+      });
+    }),
+    requestApproval: Effect.fn("AgentBridgeService.requestApproval")(function* (input) {
+      const instanceId = yield* resolveAgent(input.agent);
+      return yield* hub.requestApproval({
+        instanceId,
+        threadId: input.threadId,
+        action: input.action,
+        reason: input.reason,
       });
     }),
     share: Effect.fn("AgentBridgeService.share")(function* (input) {

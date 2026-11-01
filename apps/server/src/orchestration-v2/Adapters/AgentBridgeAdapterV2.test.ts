@@ -234,3 +234,79 @@ it.effect("answers a shared conversation's turn with preloaded replies, not the 
     }),
   ).pipe(Effect.provide(AgentBridgeHub.layer)),
 );
+
+it.effect(
+  "returns the user's approval decision to the open task and cancels a card left open",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { hub, layer, start } = yield* harness("agent-bridge-approval");
+        yield* Effect.gen(function* () {
+          const orchestrator = yield* Orchestrator.OrchestratorV2;
+          const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+          const runId = yield* start;
+          yield* hub.takeInbox(instanceId);
+
+          const shown = yield* watch(
+            (event) =>
+              event.type === "runtime-request.updated" && event.payload.status === "pending",
+          );
+          const { requestId } = yield* hub.requestApproval({
+            instanceId,
+            threadId,
+            action: "Send the launch email to jane@acme.com",
+            reason: undefined,
+          });
+          yield* Fiber.join(shown);
+
+          const answered = yield* watch(
+            (event) =>
+              event.type === "runtime-request.updated" &&
+              event.payload.id === requestId &&
+              event.payload.status === "resolved",
+          );
+          yield* orchestrator.dispatch({
+            type: "runtime-request.respond",
+            commandId: CommandId.make("decline"),
+            threadId,
+            requestId,
+            decision: "decline",
+            feedback: "Send it to bob@acme.com instead",
+          });
+          yield* worker.drain();
+          yield* Fiber.join(answered);
+          assert.deepEqual(
+            (yield* hub.takeInbox(instanceId)).flatMap((task) => task.messages.map((m) => m.text)),
+            ["Declined: Send the launch email to jane@acme.com\n\nSend it to bob@acme.com instead"],
+          );
+
+          const left = yield* hub.requestApproval({
+            instanceId,
+            threadId,
+            action: "Send the launch email to bob@acme.com",
+            reason: undefined,
+          });
+          const cancelled = yield* watch(
+            (event) =>
+              event.type === "runtime-request.updated" &&
+              event.payload.id === left.requestId &&
+              event.payload.status === "cancelled",
+          );
+          const settled = yield* watch(
+            (event) =>
+              event.type === "run.updated" &&
+              event.payload.id === runId &&
+              event.payload.status !== "running",
+          );
+          yield* hub.reply({ instanceId, threadId, text: "Skipped sending.", done: true });
+          yield* Fiber.join(cancelled);
+          yield* Fiber.join(settled);
+          yield* worker.drain();
+          assert.equal(
+            (yield* orchestrator.getThreadProjection(threadId)).runs[0]?.status,
+            "completed",
+          );
+        }).pipe(Effect.provide(layer));
+      }),
+    ).pipe(Effect.provide(AgentBridgeHub.layer)),
+);

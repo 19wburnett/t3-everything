@@ -25,6 +25,22 @@ export const layer = McpToolAccess.toLayer(AgentBridgeToolkit, {
       }),
     ),
   ),
+  t3_bridge_request_approval: McpToolAccess.writes((input) =>
+    Effect.flatMap(AgentBridgeService.AgentBridgeService, (bridge) =>
+      bridge.requestApproval({
+        agent: input.agent,
+        threadId: input.threadId,
+        action: input.action,
+        reason: input.reason,
+      }),
+    ).pipe(
+      Effect.catchTags({
+        AgentBridgeUnknownAgentError: failure("invalid_request"),
+        AgentBridgeNoOpenTaskError: failure("task_not_found"),
+        AgentBridgeTaskInterruptedError: failure("task_not_found"),
+      }),
+    ),
+  ),
   t3_bridge_share: McpToolAccess.writes((input) =>
     Effect.flatMap(AgentBridgeService.AgentBridgeService, (bridge) =>
       bridge.share({

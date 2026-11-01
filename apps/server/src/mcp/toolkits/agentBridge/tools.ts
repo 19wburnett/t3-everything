@@ -1,6 +1,7 @@
 import {
   OrchestratorMcpFailure,
   ProjectId,
+  RuntimeRequestId,
   ThreadId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
@@ -70,6 +71,23 @@ const BridgeReplyTool = Tool.make("t3_bridge_reply", {
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromThreads);
 
+const BridgeRequestApprovalTool = Tool.make("t3_bridge_request_approval", {
+  ...shared,
+  description:
+    "Ask the user to approve an action on an open task before you take it. Keep the task open; the decision arrives in t3_bridge_inbox as a message starting with Approved or Declined.",
+  parameters: Schema.Struct({
+    agent,
+    threadId: ThreadId,
+    action: TrimmedNonEmptyString.annotate({
+      description: "What you will do, e.g. Send the follow-up email to jane@acme.com.",
+    }),
+    reason: Schema.optional(Schema.String),
+  }),
+  success: Schema.Struct({ requestId: RuntimeRequestId }),
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromThreads);
+
 const BridgeShareTool = Tool.make("t3_bridge_share", {
   ...shared,
   description:
@@ -93,4 +111,9 @@ const BridgeShareTool = Tool.make("t3_bridge_share", {
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromThreads);
 
-export const AgentBridgeToolkit = Toolkit.make(BridgeInboxTool, BridgeReplyTool, BridgeShareTool);
+export const AgentBridgeToolkit = Toolkit.make(
+  BridgeInboxTool,
+  BridgeReplyTool,
+  BridgeRequestApprovalTool,
+  BridgeShareTool,
+);

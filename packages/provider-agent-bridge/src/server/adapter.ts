@@ -1,10 +1,16 @@
 import {
+  MessageId,
   ProviderDriverKind,
+  type OrchestrationV2ExecutionNode,
   type OrchestrationV2ProviderCapabilities,
   type OrchestrationV2ProviderSession,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2ProviderTurn,
+  type OrchestrationV2RuntimeRequest,
+  type OrchestrationV2TurnItem,
+  type ProviderApprovalDecision,
   type ProviderInstanceId,
+  type RuntimeRequestId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -68,7 +74,7 @@ const AgentBridgeProviderCapabilitiesV2 = {
     supportsFileChangeApproval: false,
     supportsApplyPatchApproval: false,
     approvalsHaveNativeRequestIds: false,
-    approvalCallbacksAreLiveOnly: false,
+    approvalCallbacksAreLiveOnly: true,
     approvalsCanOriginateFromSubagents: false,
   },
   planning: {
@@ -116,6 +122,25 @@ const nativeRef = (nativeId: string) => ({
   nativeId,
   strength: "weak" as const,
 });
+
+interface PendingApproval {
+  readonly turn: ActiveTurn;
+  readonly action: string;
+  request: OrchestrationV2RuntimeRequest;
+  node: OrchestrationV2ExecutionNode;
+  item: OrchestrationV2TurnItem;
+}
+
+/** The agent reads the decision as the user's next message on the task. */
+function approvalDecisionText(
+  action: string,
+  decision: ProviderApprovalDecision | undefined,
+  feedback: string | undefined,
+): string {
+  const verdict = decision === "accept" ? "Approved" : "Declined";
+  const note = feedback?.trim();
+  return note ? `${verdict}: ${action}\n\n${note}` : `${verdict}: ${action}`;
+}
 
 interface ActiveTurn {
   readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
@@ -268,12 +293,126 @@ export const makeAgentBridgeAdapterV2 = Effect.fn("makeAgentBridgeAdapterV2")(fu
           },
         });
       });
+      const approvals = new Map<RuntimeRequestId, PendingApproval>();
+      const showApproval = Effect.fnUntraced(function* (entry: PendingApproval) {
+        yield* emit({
+          type: "runtime_request.updated",
+          driver,
+          threadId: entry.turn.input.threadId,
+          runtimeRequest: entry.request,
+        });
+        yield* emit({ type: "node.updated", driver, node: entry.node });
+        yield* emit({ type: "turn_item.updated", driver, turnItem: entry.item });
+      });
+      const settleApproval = Effect.fnUntraced(function* (
+        entry: PendingApproval,
+        response: Pick<OrchestrationV2RuntimeRequest, "decision" | "feedback"> | undefined,
+      ) {
+        approvals.delete(entry.request.id);
+        const time = yield* DateTime.now;
+        const status = response ? "completed" : "cancelled";
+        entry.request = {
+          ...entry.request,
+          ...response,
+          status: response ? "resolved" : "cancelled",
+          resolvedAt: time,
+          responseCapability: { type: "not_resumable", reason: "This approval has ended." },
+        };
+        entry.node = { ...entry.node, status, completedAt: time };
+        entry.item = { ...entry.item, status, completedAt: time, updatedAt: time };
+        yield* showApproval(entry);
+      });
+      const requestApproval = Effect.fnUntraced(function* (
+        turn: ActiveTurn,
+        approval: { readonly action: string; readonly reason: string | undefined },
+      ) {
+        const ordinal = turn.nextOrdinal++;
+        const nativeId = `${options.instanceId}:${turn.providerTurn.id}:approval:${ordinal}`;
+        const requestId = yield* idAllocator.allocate
+          .runtimeRequest({
+            driver,
+            providerTurnId: turn.providerTurn.id,
+            nativeRequestId: nativeId,
+          })
+          .pipe(Effect.orDie);
+        const time = yield* DateTime.now;
+        const nodeId = idAllocator.derive.approvalNode({ requestId });
+        const { threadId, runId, rootNodeId } = turn.input;
+        const entry: PendingApproval = {
+          turn,
+          action: approval.action,
+          request: {
+            id: requestId,
+            nodeId,
+            providerTurnId: turn.providerTurn.id,
+            nativeRequestRef: nativeRef(nativeId),
+            kind: "permission",
+            status: "pending",
+            responseCapability: {
+              type: "live",
+              providerSessionId: input.providerSessionId,
+              supportsFeedback: true,
+            },
+            createdAt: time,
+            resolvedAt: null,
+          },
+          node: {
+            id: nodeId,
+            threadId,
+            runId,
+            parentNodeId: rootNodeId,
+            rootNodeId,
+            kind: "approval_request",
+            status: "waiting",
+            countsForRun: false,
+            providerThreadId: turn.providerTurn.providerThreadId,
+            providerTurnId: turn.providerTurn.id,
+            nativeItemRef: nativeRef(nativeId),
+            runtimeRequestId: requestId,
+            checkpointScopeId: null,
+            startedAt: time,
+            completedAt: null,
+          },
+          item: {
+            id: idAllocator.derive.approvalTurnItem({ requestId }),
+            nodeId,
+            threadId,
+            runId,
+            providerThreadId: turn.providerTurn.providerThreadId,
+            providerTurnId: turn.providerTurn.id,
+            nativeItemRef: nativeRef(nativeId),
+            parentItemId: null,
+            ordinal,
+            status: "waiting",
+            title: null,
+            startedAt: time,
+            completedAt: null,
+            updatedAt: time,
+            type: "approval_request",
+            requestId,
+            requestKind: "permission",
+            prompt: approval.action,
+            ...(approval.reason?.trim() ? { reason: approval.reason.trim() } : {}),
+            options: [
+              { decision: "decline", label: "Decline" },
+              { decision: "accept", label: "Approve" },
+            ],
+          },
+        };
+        approvals.set(requestId, entry);
+        yield* showApproval(entry);
+        yield* updateSession("waiting");
+        return requestId;
+      });
       const finish = Effect.fnUntraced(function* (
         turn: ActiveTurn,
         status: "completed" | "interrupted",
       ) {
         if (active !== turn) return;
         active = undefined;
+        for (const entry of approvals.values()) {
+          if (entry.turn === turn) yield* settleApproval(entry, undefined);
+        }
         turn.providerTurn = { ...turn.providerTurn, status, completedAt: yield* DateTime.now };
         yield* emit({
           type: "provider_turn.updated",
@@ -368,6 +507,7 @@ export const makeAgentBridgeAdapterV2 = Effect.fn("makeAgentBridgeAdapterV2")(fu
             if (text.trim()) yield* postAssistantMessage(turn, text);
             if (done) yield* finish(turn, "completed");
           }),
+          requestApproval: (approval) => requestApproval(turn, approval),
         });
       });
 
@@ -447,14 +587,35 @@ export const makeAgentBridgeAdapterV2 = Effect.fn("makeAgentBridgeAdapterV2")(fu
           });
           if (closed) yield* finish(turn, "interrupted");
         }),
-        respondToRuntimeRequest: (args) =>
-          Effect.fail(
-            new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({
-              driver,
-              requestId: args.requestId,
-              cause: "The agent bridge has no runtime requests.",
-            }),
-          ),
+        respondToRuntimeRequest: Effect.fn("AgentBridgeAdapter.respondToRuntimeRequest")(
+          function* (args) {
+            const entry = approvals.get(args.requestId);
+            if (!entry || active !== entry.turn)
+              return yield* new ProviderAdapter.ProviderAdapterRuntimeRequestResponseError({
+                driver,
+                requestId: args.requestId,
+                cause: "This approval is no longer pending.",
+              });
+            const decision = args.decision === "accept" ? "accept" : "decline";
+            yield* settleApproval(entry, {
+              decision,
+              ...(args.feedback === undefined ? {} : { feedback: args.feedback }),
+            });
+            yield* hub.steer({
+              instanceId: options.instanceId,
+              threadId: entry.turn.input.threadId,
+              providerTurnId: entry.turn.providerTurn.id,
+              message: {
+                messageId: MessageId.make(`approval:${args.requestId}`),
+                text: approvalDecisionText(entry.action, decision, args.feedback),
+                attachmentNames: [],
+                createdAt: yield* DateTime.now,
+              },
+            });
+            if (![...approvals.values()].some((other) => other.turn === entry.turn))
+              yield* updateSession("running");
+          },
+        ),
         readThreadSnapshot: (args) =>
           Effect.fail(
             new ProviderAdapter.ProviderAdapterReadThreadSnapshotError({

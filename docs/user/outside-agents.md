@@ -111,8 +111,12 @@ it to connect.
 
 Each message reaches the bot once, together with the project's
 `company/BRAIN.md` and `company/CHANNELS.md` when they exist. Messages you send
-while a thread is running join its open task. When a bot needs your approval,
-it asks in a reply and ends the task; your answer starts a new one. Stop ends
+while a thread is running join its open task. Before a bot sends, publishes,
+or pays for something, it can ask with `t3_bridge_request_approval`, and an
+approval card appears in the thread. Approve or Decline it, adding a note if you
+decline. The bot gets your decision the next time it checks in, so keep its
+schedule short for anything waiting on you. A restart of T3 Everything cancels
+open cards. Stop ends
 the task, and the bot's later replies to it are refused.
 
 To see a conversation you had in the bot's own app, ask the bot to share it

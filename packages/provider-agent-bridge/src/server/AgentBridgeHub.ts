@@ -9,6 +9,7 @@ import {
   type MessageId,
   ProviderInstanceId,
   type ProviderTurnId,
+  type RuntimeRequestId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -56,6 +57,11 @@ export interface AgentBridgeTurn {
   readonly message: AgentBridgeMessage;
   /** Runs under the hub's lock, so it must not call back into the hub. */
   readonly reply: (input: { readonly text: string; readonly done: boolean }) => Effect.Effect<void>;
+  /** Shows an approval card; the user's decision returns to the task as a message. */
+  readonly requestApproval: (input: {
+    readonly action: string;
+    readonly reason: string | undefined;
+  }) => Effect.Effect<RuntimeRequestId>;
 }
 
 interface OpenTask {
@@ -106,6 +112,15 @@ export class AgentBridgeHub extends Context.Service<
       { readonly completed: boolean; readonly unreadMessages: number },
       AgentBridgeNoOpenTaskError | AgentBridgeTaskInterruptedError
     >;
+    readonly requestApproval: (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly threadId: ThreadId;
+      readonly action: string;
+      readonly reason: string | undefined;
+    }) => Effect.Effect<
+      { readonly requestId: RuntimeRequestId },
+      AgentBridgeNoOpenTaskError | AgentBridgeTaskInterruptedError
+    >;
     readonly lastSeenAt: (
       instanceId: ProviderInstanceId,
     ) => Effect.Effect<DateTime.Utc | undefined>;
@@ -136,6 +151,18 @@ const make = Effect.gen(function* () {
   const markSeen = Effect.fnUntraced(function* (instanceId: ProviderInstanceId) {
     seenAt.set(instanceId, yield* DateTime.now);
     yield* Deferred.succeed(yield* seenSignal(instanceId), undefined);
+  });
+  const openTask = Effect.fnUntraced(function* (input: {
+    readonly instanceId: ProviderInstanceId;
+    readonly threadId: ThreadId;
+  }) {
+    yield* markSeen(input.instanceId);
+    const key = keyOf(input.instanceId, input.threadId);
+    const task = tasks.get(key);
+    if (task) return { key, task };
+    return yield* interrupted.has(key)
+      ? new AgentBridgeTaskInterruptedError(input)
+      : new AgentBridgeNoOpenTaskError(input);
   });
   const current = (input: {
     readonly instanceId: ProviderInstanceId;
@@ -199,18 +226,19 @@ const make = Effect.gen(function* () {
       return inbox;
     }, lock.withPermits(1)),
     reply: Effect.fn("AgentBridgeHub.reply")(function* (input) {
-      yield* markSeen(input.instanceId);
-      const key = keyOf(input.instanceId, input.threadId);
-      const task = tasks.get(key);
-      if (!task) {
-        return yield* interrupted.has(key)
-          ? new AgentBridgeTaskInterruptedError(input)
-          : new AgentBridgeNoOpenTaskError(input);
-      }
+      const { key, task } = yield* openTask(input);
       const completed = input.done && task.unread.length === 0;
       yield* task.turn.reply({ text: input.text, done: completed });
       if (completed) tasks.delete(key);
       return { completed, unreadMessages: task.unread.length };
+    }, lock.withPermits(1)),
+    requestApproval: Effect.fn("AgentBridgeHub.requestApproval")(function* (input) {
+      const { task } = yield* openTask(input);
+      const requestId = yield* task.turn.requestApproval({
+        action: input.action,
+        reason: input.reason,
+      });
+      return { requestId };
     }, lock.withPermits(1)),
     lastSeenAt: Effect.fn("AgentBridgeHub.lastSeenAt")(function (instanceId) {
       return Effect.sync(() => seenAt.get(instanceId));
