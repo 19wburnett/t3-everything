@@ -203,3 +203,34 @@ it.effect("refuses a reply after the user stops the task", () =>
     }),
   ).pipe(Effect.provide(AgentBridgeHub.layer)),
 );
+
+it.effect("answers a shared conversation's turn with preloaded replies, not the inbox", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { hub, layer, start } = yield* harness("agent-bridge-share");
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+        yield* hub.preload({ instanceId, threadId, replies: ["Here is a draft.", "Want edits?"] });
+        const answered = yield* watch(
+          (event) => event.type === "run.updated" && event.payload.status === "waiting",
+        );
+        yield* start;
+        yield* Fiber.join(answered);
+        yield* worker.drain();
+
+        assert.lengthOf(yield* hub.takeInbox(instanceId), 0);
+        const done = yield* orchestrator.getThreadProjection(threadId);
+        assert.equal(done.runs[0]?.status, "completed");
+        assert.deepEqual(
+          done.messages.map((message) => [message.role, message.text]),
+          [
+            ["user", "Draft the launch post"],
+            ["assistant", "Here is a draft."],
+            ["assistant", "Want edits?"],
+          ],
+        );
+      }).pipe(Effect.provide(layer));
+    }),
+  ).pipe(Effect.provide(AgentBridgeHub.layer)),
+);

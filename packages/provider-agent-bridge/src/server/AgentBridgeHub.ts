@@ -66,7 +66,18 @@ interface OpenTask {
 export class AgentBridgeHub extends Context.Service<
   AgentBridgeHub,
   {
+    /** Answers the turn at once with preloaded replies, else waits for the agent. */
     readonly open: (turn: AgentBridgeTurn) => Effect.Effect<void>;
+    /** The thread's next turn gets these replies instead of reaching the agent's inbox. */
+    readonly preload: (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly threadId: ThreadId;
+      readonly replies: ReadonlyArray<string>;
+    }) => Effect.Effect<void>;
+    readonly unpreload: (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly threadId: ThreadId;
+    }) => Effect.Effect<void>;
     /** False when the turn is no longer open. */
     readonly steer: (input: {
       readonly instanceId: ProviderInstanceId;
@@ -110,6 +121,7 @@ const make = Effect.gen(function* () {
   const lock = yield* Semaphore.make(1);
   const tasks = new Map<string, OpenTask>();
   const interrupted = new Set<string>();
+  const preloaded = new Map<string, ReadonlyArray<string>>();
   const seenAt = new Map<ProviderInstanceId, DateTime.Utc>();
   const seenSignals = new Map<ProviderInstanceId, Deferred.Deferred<void>>();
 
@@ -136,11 +148,28 @@ const make = Effect.gen(function* () {
   };
 
   return AgentBridgeHub.of({
-    open: Effect.fn("AgentBridgeHub.open")(function (turn) {
-      return Effect.sync(() => {
-        const key = keyOf(turn.instanceId, turn.threadId);
-        interrupted.delete(key);
+    open: Effect.fn("AgentBridgeHub.open")(function* (turn) {
+      const key = keyOf(turn.instanceId, turn.threadId);
+      interrupted.delete(key);
+      const replies = preloaded.get(key);
+      if (replies === undefined) {
         tasks.set(key, { turn, unread: [turn.message] });
+        return;
+      }
+      preloaded.delete(key);
+      if (replies.length === 0) yield* turn.reply({ text: "", done: true });
+      for (const [index, text] of replies.entries()) {
+        yield* turn.reply({ text, done: index === replies.length - 1 });
+      }
+    }, lock.withPermits(1)),
+    preload: Effect.fn("AgentBridgeHub.preload")(function (input) {
+      return Effect.sync(() => {
+        preloaded.set(keyOf(input.instanceId, input.threadId), input.replies);
+      });
+    }, lock.withPermits(1)),
+    unpreload: Effect.fn("AgentBridgeHub.unpreload")(function (input) {
+      return Effect.sync(() => {
+        preloaded.delete(keyOf(input.instanceId, input.threadId));
       });
     }, lock.withPermits(1)),
     steer: Effect.fn("AgentBridgeHub.steer")(function (input) {

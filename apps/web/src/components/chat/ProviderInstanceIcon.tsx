@@ -6,6 +6,7 @@ import {
   providerInstanceInitials,
 } from "@t3tools/client-runtime/state/provider-instance-display";
 
+import { resolveProviderInstancePackageIcon } from "@t3tools/client-runtime/provider-clients";
 import { ProviderDriverKind } from "@t3tools/contracts";
 import { AntigravityIcon, ClaudeAI, Icon, OpenAI } from "../Icons";
 
@@ -72,7 +73,7 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
   indicatorBackground?: string;
 }) {
   const Icon = PROVIDER_ICON_BY_PROVIDER[props.driverKind] ?? null;
-  const packageIcon = providerClients.get(props.driverKind)?.icon;
+  const packageIcon = resolveProviderInstancePackageIcon(props.driverKind, props.displayName);
   const indicatorBackground = props.indicatorBackground ?? "var(--card)";
   const accentColor = normalizeProviderAccentColor(props.accentColor);
   const accentStyle = accentColor

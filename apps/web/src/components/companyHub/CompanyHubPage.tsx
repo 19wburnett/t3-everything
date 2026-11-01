@@ -1,4 +1,4 @@
-import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   AuthFilesystemReadScope,
   AuthFilesystemWriteScope,
@@ -9,12 +9,10 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AsyncResult } from "effect/reactivity";
-import { BookOpenIcon, Settings2Icon } from "lucide-react";
+import { BookOpenIcon, PlusIcon, Settings2Icon } from "lucide-react";
 import { useState } from "react";
 
-import { useComposerDraftStore } from "~/composerDraftStore";
 import { isElectron } from "~/env";
-import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
 import { useProviderEntryByEnvironmentAndInstanceId } from "~/hooks/useProviderEntryByEnvironmentAndInstanceId";
 import { cn } from "~/lib/utils";
 import { isProviderInstancePickerReady } from "~/providerInstances";
@@ -34,7 +32,6 @@ import { ThreadRowLeadingStatus } from "../ThreadStatusIndicators";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { SidebarInset } from "../ui/sidebar";
-import { toastManager } from "../ui/toast";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
@@ -52,12 +49,12 @@ import {
   COMPANY_DIR,
   connectedBridgeAgents,
   groupThreadsByAgent,
-  resolveWorkTaskModelSelection,
   type WorkTaskTarget,
   WORK_TASK_PRESETS,
 } from "./companyHub.logic";
 import { CompanyInboxSection } from "./CompanyInboxSection";
 import { CompanyOutboxSection } from "./CompanyOutboxSection";
+import { useStartWorkThread } from "./useStartWorkThread";
 import { useWriteCompanyBrain } from "./useWriteCompanyBrain";
 
 const LANE_THREAD_LIMIT = 8;
@@ -118,33 +115,9 @@ function CompanyHubBody({ group }: { group: SidebarProjectSnapshot }) {
   const hasCompanyBrain = brain !== null && brain.exists !== false;
 
   const canReadChannels = useEnvironmentScope(primary.environmentId, AuthFilesystemReadScope);
-  const handleNewThread = useNewThreadHandler();
-  const startThread = async (prompt: string, target: WorkTaskTarget) => {
-    const opened = await handleNewThread(scopeProjectRef(primary.environmentId, primary.id), {
-      prompt,
-    }).catch(() => null);
-    if (opened === null) {
-      toastManager.add({ type: "error", title: "Could not start a new thread" });
-      return;
-    }
-    const providers =
-      appAtomRegistry
-        .get(environmentPresentations.providersByEnvironmentAtom)
-        .get(primary.environmentId) ?? [];
-    const resolved = resolveWorkTaskModelSelection(providers, target);
-    if ("warning" in resolved) {
-      toastManager.add({
-        type: "warning",
-        title: resolved.warning,
-        description: "Set it up in Settings > Providers. Your default model is used for now.",
-      });
-      return;
-    }
-    useComposerDraftStore.getState().setModelSelection(opened.draftId, resolved.selection, {
-      explicit: true,
-      replaceOptions: true,
-    });
-  };
+  const startWorkThread = useStartWorkThread();
+  const startThread = (prompt: string, target: WorkTaskTarget) =>
+    startWorkThread(primary, prompt, target);
 
   return (
     <WorkspacePageContainer width="expanded">
@@ -168,7 +141,11 @@ function CompanyHubBody({ group }: { group: SidebarProjectSnapshot }) {
           ))}
         </div>
       </section>
-      <AgentLanes group={group} environmentId={primary.environmentId} />
+      <AgentLanes
+        group={group}
+        environmentId={primary.environmentId}
+        onNewBridgeThread={(agent) => void startThread("", { kind: "bridge", agent })}
+      />
       {canReadChannels ? (
         <CompanyChannelSections
           environmentId={primary.environmentId}
@@ -236,9 +213,11 @@ function CompanyChannelSections(props: {
 function AgentLanes({
   group,
   environmentId,
+  onNewBridgeThread,
 }: {
   group: SidebarProjectSnapshot;
   environmentId: SidebarProjectSnapshot["environmentId"];
+  onNewBridgeThread: (agent: BridgeAgent) => void;
 }) {
   const memberKeys = new Set(
     group.memberProjectRefs.map((ref) => `${ref.environmentId}:${ref.projectId}`),
@@ -260,6 +239,9 @@ function AgentLanes({
     key.startsWith(`${environmentId}:`) && entry.driverKind === AGENT_BRIDGE_DRIVER ? [entry] : [],
   );
   const bridgeReady = bridgeEntries.some(isProviderInstancePickerReady);
+  const providers = useAtomValue(environmentPresentations.providersByEnvironmentAtom).get(
+    environmentId,
+  );
   const bridgeDocsUrl = bridgeEntries.find((entry) => entry.snapshot.setup?.documentationUrl)
     ?.snapshot.setup?.documentationUrl;
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
@@ -267,9 +249,24 @@ function AgentLanes({
 
   return (
     <section aria-labelledby="company-hub-agents" className="flex flex-col gap-3">
-      <h2 id="company-hub-agents" className="text-sm font-medium text-muted-foreground">
-        Agents
-      </h2>
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 id="company-hub-agents" className="text-sm font-medium text-muted-foreground">
+          Agents
+        </h2>
+        <div className="ml-auto flex flex-wrap gap-1">
+          {connectedBridgeAgents(providers ?? []).map((agent) => (
+            <Button
+              key={agent.instanceId}
+              size="sm"
+              variant="outline"
+              onClick={() => onNewBridgeThread(agent)}
+            >
+              <PlusIcon aria-hidden />
+              New {agent.displayName} thread
+            </Button>
+          ))}
+        </div>
+      </div>
       {bridgeReady ? null : (
         <p className="text-sm text-muted-foreground">
           Connect Muse or Grok Bot in{" "}

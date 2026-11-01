@@ -129,6 +129,8 @@ import {
 } from "../state/environments";
 import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
+import { connectedBridgeAgents } from "./companyHub/companyHub.logic";
+import { useStartWorkThread } from "./companyHub/useStartWorkThread";
 import {
   appendBrowsePathSegment,
   ensureBrowseDirectoryPath,
@@ -483,6 +485,7 @@ function OpenCommandPaletteDialog(props: {
   const threads = useThreadShells();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providersByEnvironment = useEnvironmentProviders();
+  const startWorkThread = useStartWorkThread();
   const { changeThemeItem, changeAppearanceItem, themeEditorItem } = useCommandPaletteThemeItems();
   const currentView = viewStack.at(-1)?.view ?? null;
   const threadSearchQuery = currentView === null && !isActionsOnly ? deferredQuery : "";
@@ -1653,6 +1656,22 @@ function OpenCommandPaletteDialog(props: {
     });
   }
   const contextualProjectGroup = currentProjectGroup ?? projectGroups[0] ?? null;
+  const hubProject = contextualProjectGroup?.memberProjects[0];
+  if (contextualProjectGroup && hubProject) {
+    for (const agent of connectedBridgeAgents(
+      providersByEnvironment.get(hubProject.environmentId) ?? [],
+    )) {
+      actionItems.push({
+        kind: "action",
+        value: `action:new-bridge-thread:${agent.instanceId}`,
+        searchTerms: ["new thread", agent.displayName, "agent", "work"],
+        title: `New ${agent.displayName} thread`,
+        description: contextualProjectGroup.displayName,
+        icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+        run: () => startWorkThread(hubProject, "", { kind: "bridge", agent }),
+      });
+    }
+  }
   if (contextualProjectGroup) {
     actionItems.push({
       kind: "action",

@@ -70,4 +70,27 @@ const BridgeReplyTool = Tool.make("t3_bridge_reply", {
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromThreads);
 
-export const AgentBridgeToolkit = Toolkit.make(BridgeInboxTool, BridgeReplyTool);
+const BridgeShareTool = Tool.make("t3_bridge_share", {
+  ...shared,
+  description:
+    "Copy a conversation from your own app into a T3 Everything thread so the user sees it there. It is not sent back to you as a task. The first time, pass projectId (from t3_project_list or a task) and title, and keep the returned threadId. After that, pass threadId and only the messages added since the last share.",
+  parameters: Schema.Struct({
+    agent,
+    projectId: Schema.optional(ProjectId),
+    threadId: Schema.optional(ThreadId),
+    title: Schema.optional(Schema.String),
+    messages: Schema.Array(
+      Schema.Struct({
+        role: Schema.Literals(["user", "agent"]).annotate({
+          description: "user for the user's messages, agent for yours.",
+        }),
+        text: Schema.String,
+      }),
+    ),
+  }),
+  success: Schema.Struct({ threadId: ThreadId, projectId: ProjectId, turns: Schema.Number }),
+})
+  .annotate(Tool.Destructive, false)
+  .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromThreads);
+
+export const AgentBridgeToolkit = Toolkit.make(BridgeInboxTool, BridgeReplyTool, BridgeShareTool);

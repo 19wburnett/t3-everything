@@ -90,9 +90,11 @@ Add the environment as a custom MCP app in ChatGPT's apps settings:
 
 Meta's Muse and xAI's Grok Bot run in the cloud and cannot be called by other
 apps, so T3 Code lets them pick up work instead. **Muse** and **Grok Bot** are
-listed as providers. Start a thread on one and send it a message; the thread
-stays running until the bot checks in, does the work, and replies. Until a bot
-has checked in, its provider shows that it is waiting for it to connect.
+listed as providers. Once a bot is connected, a company's hub shows **New Muse
+thread** and **New Grok Bot thread**, and the command palette has the same
+actions. The thread stays running until the bot checks in, does the work, and
+replies. Until a bot has checked in, its provider shows that it is waiting for
+it to connect.
 
 1. Give the environment an internet address with T3 Connect (`t3 up`; see
    [Remote access](./remote-access.md)) and copy its MCP URL as described
@@ -104,12 +106,22 @@ has checked in, its provider shows that it is waiting for it to connect.
 4. Give the bot a routine, for example: "Every 15 minutes, call
    `t3_bridge_inbox` with agent `museBot`. Do each task. Reply with
    `t3_bridge_reply`, and set done when finished." Use `grokBot` for Grok Bot.
+   A bot only sees new threads when it checks in, so a shorter schedule
+   answers sooner.
 
 Each message reaches the bot once, together with the project's
 `company/BRAIN.md` and `company/CHANNELS.md` when they exist. Messages you send
 while a thread is running join its open task. When a bot needs your approval,
 it asks in a reply and ends the task; your answer starts a new one. Stop ends
 the task, and the bot's later replies to it are refused.
+
+To see a conversation you had in the bot's own app, ask the bot to share it
+with T3 Code, for example: "Share this conversation to T3 Everything with
+`t3_bridge_share`, in project Bitty Construction." It appears as a thread on
+that bot, and the bot does not receive it as new work. The bot gets a thread
+id back; asking it to share again adds only the newer messages to the same
+thread. To copy chats in regularly, add that to the bot's routine. The bot
+decides what to share, so a chat it was not asked to share does not appear.
 
 Each task carries its `projectId`. With it, a bot can read the company's inbox
 with `t3_company_inbox` and `t3_company_message`, and draft replies and posts

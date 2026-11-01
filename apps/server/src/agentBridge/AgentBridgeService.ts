@@ -1,13 +1,22 @@
-import { ProviderInstanceId, type ProjectId, type ThreadId } from "@t3tools/contracts";
+import {
+  CommandId,
+  DEFAULT_PROVIDER_INTERACTION_MODE,
+  MessageId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+} from "@t3tools/contracts";
 import { AGENT_BRIDGE_DRIVER_KIND } from "@t3tools/provider-agent-bridge/server";
 import * as AgentBridgeHub from "@t3tools/provider-agent-bridge/server/AgentBridgeHub";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
@@ -21,6 +30,42 @@ export class AgentBridgeUnknownAgentError extends Schema.TaggedError<AgentBridge
     const valid = this.validAgents.length === 0 ? "none" : this.validAgents.join(", ");
     return `"${this.agent}" is not an agent bridge in T3 Everything. Valid agents: ${valid}.`;
   }
+}
+
+export class AgentBridgeShareError extends Schema.TaggedError<AgentBridgeShareError>()(
+  "AgentBridgeShareError",
+  { message: Schema.String },
+) {}
+
+export interface AgentBridgeSharedMessage {
+  readonly role: "user" | "agent";
+  readonly text: string;
+}
+
+const SHARE_TURN_TIMEOUT_MS = 30_000;
+
+/** Each exchange becomes one turn: the user's messages, answered by the agent's replies. */
+export function toShareExchanges(
+  messages: ReadonlyArray<AgentBridgeSharedMessage>,
+): ReadonlyArray<{ readonly text: string; readonly replies: ReadonlyArray<string> }> {
+  const exchanges: Array<{ user: Array<string>; replies: Array<string> }> = [];
+  for (const message of messages) {
+    const text = message.text.trim();
+    // A lone slash command was the other app's command, and here it would run as T3's own (/compact).
+    if (text.length === 0 || (message.role === "user" && /^\/\S+$/.test(text))) continue;
+    const last = exchanges.at(-1);
+    if (message.role === "agent" && last) last.replies.push(text);
+    else if (message.role === "user" && last && last.replies.length === 0) last.user.push(text);
+    else
+      exchanges.push(
+        message.role === "user" ? { user: [text], replies: [] } : { user: [], replies: [text] },
+      );
+  }
+  return exchanges.map((exchange) => ({
+    text:
+      exchange.user.length === 0 ? "(Earlier in this conversation)" : exchange.user.join("\n\n"),
+    replies: exchange.replies,
+  }));
 }
 
 const BRAIN_FILES = ["company/BRAIN.md", "company/CHANNELS.md"] as const;
@@ -66,6 +111,17 @@ export class AgentBridgeService extends Context.Service<
       | AgentBridgeHub.AgentBridgeNoOpenTaskError
       | AgentBridgeHub.AgentBridgeTaskInterruptedError
     >;
+    /** Copies a conversation held by the agent's own app into a thread, without sending it to the agent. */
+    readonly share: (input: {
+      readonly agent: string;
+      readonly projectId: ProjectId | undefined;
+      readonly threadId: ThreadId | undefined;
+      readonly title: string | undefined;
+      readonly messages: ReadonlyArray<AgentBridgeSharedMessage>;
+    }) => Effect.Effect<
+      { readonly threadId: ThreadId; readonly projectId: ProjectId; readonly turns: number },
+      AgentBridgeUnknownAgentError | AgentBridgeShareError
+    >;
   }
 >()("t3/agentBridge/AgentBridgeService") {}
 
@@ -75,6 +131,8 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagement.ThreadManagementService;
   const projects = yield* ProjectService.ProjectService;
   const workspaceFiles = yield* WorkspaceFileSystem.WorkspaceFileSystem;
+  const threadLaunch = yield* ThreadLaunch.ThreadLaunchService;
+  const randomUUID = (yield* Crypto.Crypto).randomUUIDv4().pipe(Effect.orDie);
 
   const resolveAgent = Effect.fn("AgentBridgeService.resolveAgent")(function* (agent: string) {
     const bridges = (yield* registry.listInstances).filter(
@@ -116,6 +174,39 @@ const make = Effect.gen(function* () {
     return { title: found.value.title, brain: yield* readBrain(found.value.workspaceRoot) };
   });
 
+  const shareFailure = (message: string) => new AgentBridgeShareError({ message });
+
+  const resolveShareTarget = Effect.fn("AgentBridgeService.resolveShareTarget")(function* (
+    instanceId: ProviderInstanceId,
+    input: { readonly projectId: ProjectId | undefined; readonly threadId: ThreadId | undefined },
+  ) {
+    if (input.threadId === undefined) {
+      if (input.projectId === undefined) {
+        return yield* shareFailure(
+          "Pass projectId for a new conversation, or the threadId it returned before.",
+        );
+      }
+      const project = yield* projects
+        .getShell(input.projectId)
+        .pipe(Effect.orElseSucceed(() => Option.none()));
+      if (Option.isNone(project)) return yield* shareFailure(`No project ${input.projectId}.`);
+      return { projectId: input.projectId, threadId: undefined };
+    }
+    const shell = yield* threads
+      .getThreadShell(input.threadId)
+      .pipe(Effect.orElseSucceed(() => null));
+    if (shell === null) return yield* shareFailure(`No thread ${input.threadId}.`);
+    if (shell.modelSelection.instanceId !== instanceId) {
+      return yield* shareFailure(`Thread ${input.threadId} is not a ${instanceId} thread.`);
+    }
+    if (shell.activeRunId !== null) {
+      return yield* shareFailure(
+        `Thread ${input.threadId} has an open task. Answer it with t3_bridge_reply first.`,
+      );
+    }
+    return { projectId: shell.projectId, threadId: input.threadId };
+  });
+
   return AgentBridgeService.of({
     inbox: Effect.fn("AgentBridgeService.inbox")(function* (agent) {
       const instanceId = yield* resolveAgent(agent);
@@ -155,6 +246,72 @@ const make = Effect.gen(function* () {
         text: input.text,
         done: input.done,
       });
+    }),
+    share: Effect.fn("AgentBridgeService.share")(function* (input) {
+      const instanceId = yield* resolveAgent(input.agent);
+      const exchanges = toShareExchanges(input.messages);
+      if (exchanges.length === 0) return yield* shareFailure("No messages to share.");
+      const target = yield* resolveShareTarget(instanceId, input);
+      const threadId = target.threadId ?? ThreadId.make(yield* randomUUID);
+      const { projectId } = target;
+      for (const [index, exchange] of exchanges.entries()) {
+        yield* hub.preload({ instanceId, threadId, replies: exchange.replies });
+        const commandId = CommandId.make(yield* randomUUID);
+        const messageId = MessageId.make(yield* randomUUID);
+        const addFailure = (error: { readonly message: string }) =>
+          shareFailure(`Could not add the conversation: ${error.message}`);
+        const runId =
+          index === 0 && target.threadId === undefined
+            ? yield* threadLaunch
+                .launch({
+                  commandId,
+                  threadId,
+                  projectId,
+                  title: input.title?.trim() || exchange.text.slice(0, 80),
+                  modelSelection: { instanceId, model: "default" },
+                  runtimeMode: "full-access",
+                  interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+                  workspaceStrategy: { type: "root" },
+                  initialMessage: { messageId, text: exchange.text, attachments: [] },
+                  createdBy: "agent",
+                  creationSource: "mcp",
+                })
+                .pipe(
+                  Effect.map((launched) => launched.projection.runs.at(-1)?.id),
+                  Effect.mapError(addFailure),
+                )
+            : yield* threads
+                .sendToThread({
+                  projectId,
+                  commandId,
+                  threadId,
+                  messageId,
+                  text: exchange.text,
+                  attachments: [],
+                  mode: "queue",
+                  createdBy: "agent",
+                  creationSource: "mcp",
+                })
+                .pipe(
+                  Effect.map((sent) => sent.run.id),
+                  Effect.mapError(addFailure),
+                );
+        const waited = yield* threads
+          .waitForThread({
+            projectId,
+            threadId,
+            ...(runId === undefined ? {} : { runId }),
+            timeoutMs: SHARE_TURN_TIMEOUT_MS,
+          })
+          .pipe(Effect.mapError((error) => shareFailure(error.message)));
+        if (waited.timedOut || waited.run?.status !== "completed") {
+          yield* hub.unpreload({ instanceId, threadId });
+          return yield* shareFailure(
+            `Shared ${index} of ${exchanges.length} exchanges before the thread stopped. Share the rest with this threadId.`,
+          );
+        }
+      }
+      return { threadId, projectId, turns: exchanges.length };
     }),
   });
 });
