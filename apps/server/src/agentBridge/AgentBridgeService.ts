@@ -72,13 +72,14 @@ export function toShareExchanges(
 const BRAIN_FILES = ["company/BRAIN.md", "company/CHANNELS.md", "company/DESIGN.md"] as const;
 const BRAIN_FILE_MAX_CHARS = 8_000;
 const INSTRUCTIONS =
-  "Do each task, then post results with t3_bridge_reply (one call per message) and set done: true when the task is finished. Before anything the user should approve, such as sending, publishing, or paying, call t3_bridge_request_approval and leave the task open; the decision arrives here as a message on the same task, starting with Approved or Declined. If you need other input, ask in a reply and set done: true; their answer arrives as a new task.";
+  "Do each task, then post results with t3_bridge_reply (one call per message) and set done: true when the task is finished. Before anything the user should approve, such as sending, publishing, or paying, call t3_bridge_request_approval and leave the task open; the decision arrives here as a message on the same task, starting with Approved or Declined. If you need other input, ask in a reply and set done: true; their answer arrives as a new task. A task marked redelivered got no reply after you last collected it: read the thread with t3_thread_read and do not repeat anything you already did.";
 
 export interface AgentBridgeInboxTask {
   readonly threadId: ThreadId;
   readonly threadTitle: string | null;
   readonly projectId: ProjectId | null;
   readonly project: string | null;
+  readonly redelivered: boolean;
   readonly messages: ReadonlyArray<{
     readonly text: string;
     readonly createdAt: string;
@@ -95,10 +96,11 @@ export class AgentBridgeService extends Context.Service<
   AgentBridgeService,
   {
     /** Hands over unread messages; what it reads afterwards cannot fail the call. */
-    readonly inbox: (
-      agent: string,
-    ) => Effect.Effect<
-      { readonly instructions: string; readonly tasks: ReadonlyArray<AgentBridgeInboxTask> },
+    readonly inbox: (agent: string) => Effect.Effect<
+      {
+        readonly instructions?: string;
+        readonly tasks: ReadonlyArray<AgentBridgeInboxTask>;
+      },
       AgentBridgeUnknownAgentError
     >;
     readonly reply: (input: {
@@ -244,6 +246,7 @@ const make = Effect.gen(function* () {
           threadTitle: shell?.title ?? null,
           projectId: shell?.projectId ?? null,
           project: project?.title ?? null,
+          redelivered: task.redelivered,
           messages: task.messages.map((message) => ({
             text: message.text,
             createdAt: DateTime.formatIso(message.createdAt),
@@ -259,7 +262,9 @@ const make = Effect.gen(function* () {
   return AgentBridgeService.of({
     inbox: Effect.fn("AgentBridgeService.inbox")(function* (agent) {
       const instanceId = yield* resolveAgent(agent);
-      return { instructions: INSTRUCTIONS, tasks: yield* collectInbox(instanceId) };
+      const tasks = yield* collectInbox(instanceId);
+      // Empty checks are most calls on a frequent schedule; keep them small.
+      return tasks.length === 0 ? { tasks } : { instructions: INSTRUCTIONS, tasks };
     }),
     reply: Effect.fn("AgentBridgeService.reply")(function* (input) {
       const instanceId = yield* resolveAgent(input.agent);

@@ -105,12 +105,18 @@ it to connect.
    collect or answer messages.
 4. Give the bot a routine, for example: "Every 15 minutes, call
    `t3_bridge_inbox` with agent `museBot`. Do each task. Reply with
-   `t3_bridge_reply`, and set done when finished." Use `grokBot` for Grok Bot.
+   `t3_bridge_reply`, and set done when finished. Never answer with
+   `t3_thread_send`." Use `grokBot` for Grok Bot. T3 refuses a bot's
+   `t3_thread_send` to its own threads, since that would post as you.
    A bot only sees new threads when it checks in, so a shorter schedule
-   answers sooner. A running thread shows when the bot last checked in.
+   answers sooner. Each check-in is a run of the bot, though, and uses its own
+   usage even when there is nothing to do. A running thread shows when the bot
+   last checked in.
 
-Each message reaches the bot once, together with the project's
-`company/BRAIN.md` and `company/CHANNELS.md` when they exist. Messages you send
+Each message reaches the bot together with the project's `company/BRAIN.md`
+and `company/CHANNELS.md` when they exist. If the bot collects a message but
+does not reply on that thread within 10 minutes, the message is handed to it
+again, so work is not lost when a bot run fails partway. Messages you send
 while a thread is running join its open task. Before a bot sends, publishes,
 or pays for something, it can ask with `t3_bridge_request_approval`, and an
 approval card appears in the thread. Approve or Decline it, adding a note if you

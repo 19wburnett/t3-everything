@@ -16,6 +16,7 @@ import {
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -49,6 +50,8 @@ export interface AgentBridgeMessage {
 export interface AgentBridgeTask {
   readonly threadId: ThreadId;
   readonly messages: ReadonlyArray<AgentBridgeMessage>;
+  /** Handed over before without a reply since, so the agent may have acted on it already. */
+  readonly redelivered: boolean;
 }
 
 export interface AgentBridgeApproval {
@@ -98,9 +101,16 @@ export interface AgentBridgeHubStore {
   readonly save: (state: AgentBridgeHubState) => Effect.Effect<void>;
 }
 
+/** Messages taken from the inbox return to it when the agent has not written back by then. */
+export const AGENT_BRIDGE_REDELIVER_AFTER = Duration.minutes(10);
+
 interface OpenTask {
   readonly turn: AgentBridgeTurn;
   readonly unread: Array<AgentBridgeMessage>;
+  /** Taken but not yet acknowledged by a reply or approval request. */
+  delivered:
+    | { readonly messages: Array<AgentBridgeMessage>; readonly at: DateTime.Utc }
+    | undefined;
   readonly approvals: Map<RuntimeRequestId, AgentBridgeApproval>;
 }
 
@@ -153,7 +163,7 @@ export class AgentBridgeHub extends Context.Service<
       readonly instanceId: ProviderInstanceId;
       readonly threadId: ThreadId;
     }) => Effect.Effect<void>;
-    /** Returns each open task's unread messages and marks them read. */
+    /** Returns each open task's unread messages; they come back if the agent never writes back. */
     readonly takeInbox: (
       instanceId: ProviderInstanceId,
     ) => Effect.Effect<ReadonlyArray<AgentBridgeTask>>;
@@ -224,7 +234,7 @@ const make = Effect.fn("AgentBridgeHub.make")(function* (store: AgentBridgeHubSt
     const open: Array<AgentBridgeStoredTask> = [...tasks.values()].map((task) => ({
       instanceId: task.turn.instanceId,
       threadId: task.turn.threadId,
-      unread: task.unread.map(toStoredMessage),
+      unread: [...(task.delivered?.messages ?? []), ...task.unread].map(toStoredMessage),
       approvals: [...task.approvals.values()].map((approval) => ({
         action: approval.action,
         ...(approval.reason === undefined ? {} : { reason: approval.reason }),
@@ -257,7 +267,10 @@ const make = Effect.fn("AgentBridgeHub.make")(function* (store: AgentBridgeHubSt
     yield* markSeen(input.instanceId);
     const key = keyOf(input.instanceId, input.threadId);
     const task = tasks.get(key);
-    if (task) return { key, task };
+    if (task) {
+      task.delivered = undefined;
+      return { key, task };
+    }
     yield* persist();
     return yield* interrupted.has(key)
       ? new AgentBridgeTaskInterruptedError(input)
@@ -295,6 +308,7 @@ const make = Effect.fn("AgentBridgeHub.make")(function* (store: AgentBridgeHubSt
           ...(saved?.unread.map(fromStoredMessage) ?? []),
           ...(resuming ? [] : [turn.message]),
         ],
+        delivered: undefined,
         approvals: new Map(),
       };
       tasks.set(key, task);
@@ -346,7 +360,9 @@ const make = Effect.fn("AgentBridgeHub.make")(function* (store: AgentBridgeHubSt
       detached.set(open.key, {
         instanceId: input.instanceId,
         threadId: input.threadId,
-        unread: open.task.unread.map(toStoredMessage),
+        unread: [...(open.task.delivered?.messages ?? []), ...open.task.unread].map(
+          toStoredMessage,
+        ),
         approvals: [...open.task.approvals.values()].map((approval) => ({
           action: approval.action,
           ...(approval.reason === undefined ? {} : { reason: approval.reason }),
@@ -361,10 +377,22 @@ const make = Effect.fn("AgentBridgeHub.make")(function* (store: AgentBridgeHubSt
     }, lock.withPermits(1)),
     takeInbox: Effect.fn("AgentBridgeHub.takeInbox")(function* (instanceId) {
       yield* markSeen(instanceId);
+      const now = yield* DateTime.now;
+      const redeliverBefore = DateTime.subtractDuration(now, AGENT_BRIDGE_REDELIVER_AFTER);
       const inbox: Array<AgentBridgeTask> = [];
-      for (const { turn, unread } of tasks.values()) {
-        if (turn.instanceId !== instanceId || unread.length === 0) continue;
-        inbox.push({ threadId: turn.threadId, messages: unread.splice(0) });
+      for (const task of tasks.values()) {
+        if (task.turn.instanceId !== instanceId) continue;
+        const stale =
+          task.delivered && DateTime.isLessThanOrEqualTo(task.delivered.at, redeliverBefore)
+            ? task.delivered.messages
+            : [];
+        if (stale.length === 0 && task.unread.length === 0) continue;
+        const messages = [...stale, ...task.unread.splice(0)];
+        task.delivered = {
+          messages: [...(stale.length > 0 ? [] : (task.delivered?.messages ?? [])), ...messages],
+          at: now,
+        };
+        inbox.push({ threadId: task.turn.threadId, messages, redelivered: stale.length > 0 });
       }
       yield* persist();
       return inbox;

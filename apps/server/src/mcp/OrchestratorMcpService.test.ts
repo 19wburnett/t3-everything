@@ -2717,6 +2717,84 @@ describe("OrchestratorMcpService thread lookup", () => {
   );
 });
 
+describe("OrchestratorMcpService send to a hosted agent's thread", () => {
+  const museBot = ProviderInstanceId.make("museBot");
+  const museThread = {
+    ...liveThreadShell(ThreadId.make("thread:muse")),
+    providerInstanceId: museBot,
+    modelSelection: { instanceId: museBot, model: "default" },
+  };
+  const codexThread = liveThreadShell(ThreadId.make("thread:codex"));
+  const client: McpInvocationScope = {
+    environmentId: EnvironmentId.make("environment:bridge-send"),
+    requestNamespace: "client:bridge-send",
+    thread: undefined,
+    client: { sessionId: "bridge-send", label: "Muse", access: "full-access" },
+    capabilities: new Set(["orchestration"]),
+    issuedAt: 1,
+  };
+
+  it.effect("sends a hosted agent's answer to t3_bridge_reply instead of posting as the user", () =>
+    Effect.gen(function* () {
+      const sent = yield* Ref.make<ReadonlyArray<ThreadId>>([]);
+      const shells = [museThread, codexThread];
+      yield* Effect.gen(function* () {
+        const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const refused = yield* mcp
+          .sendToThread(client, { threadId: museThread.id, message: "Ok" })
+          .pipe(Effect.flip);
+        assert.equal(refused.code, "invalid_request");
+        assert.include(refused.message, "t3_bridge_reply (agent museBot)");
+        yield* mcp.sendToThread(client, { threadId: codexThread.id, message: "Ok" });
+        assert.deepStrictEqual(yield* Ref.get(sent), [codexThread.id]);
+      }).pipe(
+        Effect.provide(
+          layerOrchestratorService.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                NodeServices.layer,
+                Layer.mock(ThreadManagementService.ThreadManagementService)({
+                  getThreadShell: (threadId) =>
+                    Effect.succeed(shells.find((shell) => shell.id === threadId) ?? null),
+                  getProjectThreadRecords: ({ threadId }) =>
+                    Effect.succeed(
+                      idleThreadProjection(shells.find((shell) => shell.id === threadId)!),
+                    ),
+                  sendToThread: (input) =>
+                    Ref.update(sent, (ids) => [...ids, input.threadId]).pipe(
+                      Effect.as({
+                        threadId: input.threadId,
+                        delivery: "started",
+                        run: { id: RunId.make("run:codex"), status: "queued" },
+                      } as never),
+                    ),
+                }),
+                ServerSettings.layerTest(),
+                Layer.mock(ProviderRegistry.ProviderRegistry)({
+                  getProviders: Effect.succeed([
+                    {
+                      instanceId: museBot,
+                      driver: ProviderDriverKind.make("agentBridge"),
+                      displayName: "Muse",
+                    } as ServerProvider,
+                  ]),
+                }),
+                Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+                  list: () => Effect.succeed([]),
+                }),
+                Layer.mock(ProjectService.ProjectService)({}),
+                Layer.mock(SecretRequests.SecretRequests)({}),
+                Layer.mock(RemoteDelegation.RemoteDelegation)({}),
+                Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+              ),
+            ),
+          ),
+        ),
+      );
+    }),
+  );
+});
+
 describe("OrchestratorMcpService thread list", () => {
   const client: McpInvocationScope = {
     environmentId: EnvironmentId.make("environment:thread-list"),

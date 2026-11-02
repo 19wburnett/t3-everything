@@ -29,6 +29,7 @@ const InboxTasks = Schema.Array(
     threadTitle: Schema.NullOr(Schema.String),
     projectId: Schema.NullOr(ProjectId),
     project: Schema.NullOr(Schema.String),
+    redelivered: Schema.Boolean,
     messages: Schema.Array(
       Schema.Struct({
         text: Schema.String,
@@ -48,10 +49,10 @@ const InboxTasks = Schema.Array(
 
 const BridgeInboxTool = Tool.make("t3_bridge_inbox", {
   ...shared,
-  description: "Collect new user messages for your agent. Each message is returned once.",
+  description: "Collect new user messages for your agent. Unanswered ones return after 10 minutes.",
   parameters: Schema.Struct({ agent }),
   success: Schema.Struct({
-    instructions: Schema.String,
+    instructions: Schema.optional(Schema.String),
     tasks: InboxTasks,
   }),
 })

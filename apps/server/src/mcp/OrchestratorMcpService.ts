@@ -63,6 +63,7 @@ import {
   ThreadId,
   isOrchestrationV2WorkActive,
 } from "@t3tools/contracts";
+import { AGENT_BRIDGE_DRIVER_KIND } from "@t3tools/provider-agent-bridge/server";
 import { getProviderOptionCurrentValue } from "@t3tools/shared/model";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
@@ -2973,6 +2974,20 @@ const make = Effect.gen(function* () {
       yield* assertLiveCallerForOtherThread(scope, parent, target);
       yield* resolveRuntimeMode(limits.runtimeMode, target.thread.runtimeMode);
       yield* resolveInteractionMode(limits.interactionMode, target.thread.interactionMode);
+      // A hosted agent answering its own task here would post as the user and re-queue it to itself.
+      if (scope.thread === undefined) {
+        const bridge = (yield* loadProviders).find(
+          (provider) =>
+            provider.instanceId === target.thread.modelSelection.instanceId &&
+            provider.driver === AGENT_BRIDGE_DRIVER_KIND,
+        );
+        if (bridge) {
+          return yield* failure(
+            "invalid_request",
+            `Thread ${input.threadId} is a ${bridge.displayName ?? bridge.instanceId} thread. Answer it with t3_bridge_reply (agent ${bridge.instanceId}); t3_thread_send would post as the user.`,
+          );
+        }
+      }
 
       const mode = input.mode ?? "auto";
       const key = yield* requestKey(input.clientRequestId);

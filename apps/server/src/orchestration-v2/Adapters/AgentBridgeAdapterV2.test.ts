@@ -16,10 +16,12 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
+import { TestClock } from "effect/testing";
 
 import * as EffectWorker from "../EffectWorker.ts";
 import * as Orchestrator from "../Orchestrator.ts";
@@ -370,4 +372,38 @@ it.effect(
         assert.deepEqual(shown, ["Send it", "Send it"]);
       }).pipe(Effect.provide(AgentBridgeHub.layerWithStore(store)));
     }),
+);
+
+it.effect("hands a collected message back when the agent never writes back on its task", () =>
+  Effect.gen(function* () {
+    const hub = yield* AgentBridgeHub.AgentBridgeHub;
+    yield* hub.open({
+      instanceId,
+      threadId,
+      providerTurnId: ProviderTurnId.make("turn:1"),
+      message: {
+        messageId: MessageId.make("message:first"),
+        text: "Draft the launch post",
+        attachmentNames: [],
+        createdAt: DateTime.makeUnsafe("2026-11-01T00:00:00Z"),
+      },
+      reply: () => Effect.void,
+      requestApproval: () => Effect.succeed(RuntimeRequestId.make("request:1")),
+    });
+    const inbox = Effect.map(hub.takeInbox(instanceId), (tasks) =>
+      tasks.map((task) => [task.messages.map((m) => m.text), task.redelivered]),
+    );
+
+    assert.deepEqual(yield* inbox, [[["Draft the launch post"], false]]);
+    yield* TestClock.adjust(
+      Duration.subtract(AgentBridgeHub.AGENT_BRIDGE_REDELIVER_AFTER, Duration.seconds(1)),
+    );
+    assert.deepEqual(yield* inbox, []);
+    yield* TestClock.adjust("1 second");
+    assert.deepEqual(yield* inbox, [[["Draft the launch post"], true]]);
+
+    yield* hub.reply({ instanceId, threadId, text: "On it.", done: false });
+    yield* TestClock.adjust(AgentBridgeHub.AGENT_BRIDGE_REDELIVER_AFTER);
+    assert.deepEqual(yield* inbox, []);
+  }).pipe(Effect.provide(AgentBridgeHub.layer)),
 );
