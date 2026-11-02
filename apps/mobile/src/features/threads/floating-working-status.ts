@@ -9,6 +9,8 @@ export interface FloatingStatusAction {
 
 export type FloatingWorkingStatus =
   | { readonly kind: "working"; readonly startedAt: string }
+  /** A hosted agent answers only when it checks in; `label` is its name. */
+  | { readonly kind: "hosted-agent"; readonly label: string; readonly lastSeenAt: string | null }
   | { readonly kind: "syncing"; readonly label: string }
   | { readonly kind: "compacting" }
   | {

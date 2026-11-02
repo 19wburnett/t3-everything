@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildWorkTaskPrompt,
   groupThreadsByAgent,
+  resolveHandOff,
   resolveWorkTaskModelSelection,
   WORK_TASK_PRESETS,
 } from "./companyHub.logic";
@@ -69,5 +70,29 @@ describe("resolveWorkTaskModelSelection", () => {
     expect(resolveWorkTaskModelSelection([], muse)).toEqual({
       warning: "Muse isn't connected on this machine.",
     });
+  });
+});
+
+describe("resolveHandOff", () => {
+  it("offers only set-up coding agents, and only for a hosted agent's thread", () => {
+    const provider = (instanceId: string, driver: string, enabled = true) => ({
+      instanceId: ProviderInstanceId.make(instanceId),
+      driver: ProviderDriverKind.make(driver),
+      displayName: instanceId === "museBot" ? "Muse" : undefined,
+      enabled,
+      status: "ready" as const,
+      models: [{ slug: "default", name: "Default", isDefault: true }],
+    });
+    const providers = [
+      provider("museBot", "agentBridge"),
+      provider("claudeAgent", "claudeAgent"),
+      provider("codex", "codex", false),
+    ];
+    expect(resolveHandOff(providers, "museBot")).toEqual({
+      agentName: "Muse",
+      targets: [{ provider: "claude", label: "Claude" }],
+    });
+    expect(resolveHandOff(providers, "claudeAgent")).toBeNull();
+    expect(resolveHandOff([provider("museBot", "agentBridge")], "museBot")).toBeNull();
   });
 });

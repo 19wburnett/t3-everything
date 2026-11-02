@@ -26,6 +26,7 @@ export type ThreadActionMenuId =
   | "copy-branch"
   | "copy-thread"
   | "copy-thread-id"
+  | `hand-off:${string}`
   | "archive"
   | "delete";
 
@@ -95,22 +96,26 @@ export interface ThreadActionMenuState {
   readonly canShareWithGuest?: boolean;
   /** A No project thread with its own folder, on a server that can promote it. */
   readonly canTurnIntoProject?: boolean;
+  /** Coding agents a hosted agent's thread can be handed to. */
+  readonly handOffTargets?: ReadonlyArray<{ readonly provider: string; readonly label: string }>;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
-  return ![
-    "find",
-    "new-thread-on-branch",
-    "project-settings",
-    "mark-unread",
-    "share-guest",
-    "copy",
-    "copy-path",
-    "copy-branch",
-    "copy-thread",
-    "copy-thread-id",
-  ].includes(action);
+  return (
+    ![
+      "find",
+      "new-thread-on-branch",
+      "project-settings",
+      "mark-unread",
+      "share-guest",
+      "copy",
+      "copy-path",
+      "copy-branch",
+      "copy-thread",
+      "copy-thread-id",
+    ].includes(action) && !action.startsWith("hand-off:")
+  );
 }
 
 export function buildThreadActionMenuItems(
@@ -120,6 +125,11 @@ export function buildThreadActionMenuItems(
     ...(state.canFind
       ? [{ id: "find" as const, label: "Find in thread", icon: "text-search" }]
       : []),
+    ...(state.handOffTargets ?? []).map((target) => ({
+      id: `hand-off:${target.provider}` as const,
+      label: `Send to ${target.label}`,
+      icon: "message-square-plus",
+    })),
     ...(state.branch
       ? [
           {

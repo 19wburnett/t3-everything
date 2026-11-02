@@ -131,6 +131,7 @@ import {
 import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
 import { connectedBridgeAgents } from "./companyHub/companyHub.logic";
+import { readHandOff, useHandOffThread } from "./companyHub/useHandOffThread";
 import { useStartWorkThread } from "./companyHub/useStartWorkThread";
 import {
   appendBrowsePathSegment,
@@ -487,6 +488,7 @@ function OpenCommandPaletteDialog(props: {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const providersByEnvironment = useEnvironmentProviders();
   const startWorkThread = useStartWorkThread();
+  const handOffThread = useHandOffThread();
   const { changeThemeItem, changeAppearanceItem, themeEditorItem } = useCommandPaletteThemeItems();
   const currentView = viewStack.at(-1)?.view ?? null;
   const threadSearchQuery = currentView === null && !isActionsOnly ? deferredQuery : "";
@@ -1681,6 +1683,27 @@ function OpenCommandPaletteDialog(props: {
         description: contextualProjectGroup.displayName,
         icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
         run: () => startWorkThread(hubProject, "", { kind: "bridge", agent }),
+      });
+    }
+  }
+  if (activeThread) {
+    const handOffSource = {
+      environmentId: activeThread.environmentId,
+      id: activeThread.id,
+      projectId: activeThread.projectId,
+      title: activeThread.title,
+      instanceId:
+        activeThread.runtime?.providerInstanceId ?? activeThread.modelSelection.instanceId,
+    };
+    for (const target of readHandOff(handOffSource)?.targets ?? []) {
+      actionItems.push({
+        kind: "action",
+        value: `action:hand-off:${target.provider}`,
+        searchTerms: ["send", "hand off", "handoff", target.label, "code", "continue"],
+        title: `Send this thread to ${target.label}`,
+        description: activeThread.title,
+        icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+        run: () => handOffThread(handOffSource, target.provider),
       });
     }
   }

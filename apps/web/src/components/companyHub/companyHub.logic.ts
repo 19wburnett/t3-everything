@@ -155,6 +155,38 @@ export function connectedBridgeAgents(
   );
 }
 
+const HAND_OFF_TARGETS = [
+  { provider: "claude", label: "Claude" },
+  { provider: "codex", label: "Codex" },
+] as const;
+
+export type HandOffTarget = (typeof HAND_OFF_TARGETS)[number];
+
+/** A hosted agent's thread can move to a coding agent, which has the files, browser, and accounts. */
+export function resolveHandOff(
+  providers: ReadonlyArray<
+    Parameters<typeof resolvePromptLinkModelSelection>[0][number] & {
+      readonly displayName?: string | undefined;
+    }
+  >,
+  instanceId: string,
+): { readonly agentName: string; readonly targets: ReadonlyArray<HandOffTarget> } | null {
+  const agent = providers.find(
+    (provider) => provider.instanceId === instanceId && provider.driver === AGENT_BRIDGE_DRIVER,
+  );
+  if (!agent) return null;
+  const targets = HAND_OFF_TARGETS.filter(
+    (target) =>
+      "selection" in
+      resolveWorkTaskModelSelection(providers, { kind: "coding", provider: target.provider }),
+  );
+  return targets.length === 0 ? null : { agentName: agent.displayName ?? "The agent", targets };
+}
+
+export function buildHandOffPrompt(threadReference: string, agentName: string): string {
+  return `${threadReference}\n\n${agentName} started this work in the thread above. Read it, then carry the work through here.`;
+}
+
 export const COMPANY_BRAIN_TEMPLATES: ReadonlyArray<{
   readonly relativePath: string;
   readonly contents: string;

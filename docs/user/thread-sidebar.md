@@ -163,6 +163,7 @@ threads from every project and agent that are waiting on you: approvals,
 questions, guest requests, ready plans, failures, and work that finished since
 you last opened the thread. Finished and failed threads leave the list when you
 open them; the others leave once you answer.
+It also lists each company's outbox drafts that still need you to send them.
 
 ## Settle finished work
 

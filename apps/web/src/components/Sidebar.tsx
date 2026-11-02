@@ -1,4 +1,5 @@
 import { attachSidebarTree, SIDEBAR_TREE_PROPS } from "../lib/sidebarTree";
+import { readHandOff, useHandOffThread } from "./companyHub/useHandOffThread";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { ThreadContextDragGhost } from "./chat/ThreadContextDragGhost";
@@ -2245,6 +2246,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     })();
   };
 
+  const handOffThread = useHandOffThread();
   const handleMultiSelectContextMenu = useStableCallback(
     async (position: { x: number; y: number }) => {
       const api = readLocalApi();
@@ -2585,6 +2587,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           timestampFormat,
           thread.environmentId,
         );
+        const handOffSource = {
+          environmentId: thread.environmentId,
+          id: thread.id,
+          projectId: thread.projectId,
+          instanceId: thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId,
+        };
+        const handOff = readHandOff(handOffSource);
         const threadProjectGroup =
           projectGroupsRef.current.find((project) =>
             project.memberProjectRefs.some(
@@ -2620,6 +2629,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                 canShareWithGuestAtom(threadRef.environmentId),
               ),
               canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+              ...(handOff ? { handOffTargets: handOff.targets } : {}),
               supports: {
                 settlement: configLoaded,
                 autoSettleOptOut: supportsAutoSettleOptOut,
@@ -2634,6 +2644,13 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
+        if (clicked.value.startsWith("hand-off:")) {
+          const action = clicked.value;
+          const target = handOff?.targets.find((entry) => action === `hand-off:${entry.provider}`);
+          if (target)
+            void handOffThread({ ...handOffSource, title: thread.title }, target.provider);
+          return;
+        }
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
             clicked.value === "snooze:custom"

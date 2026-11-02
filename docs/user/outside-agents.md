@@ -128,6 +128,11 @@ decides what to share, so a chat it was not asked to share does not appear.
 Sharing also hands the bot any new messages waiting for it, so a bot that shares
 often answers sooner.
 
+To have a coding agent finish what a bot started, choose **Send to Claude** or
+**Send to Codex** from the thread's menu or the command palette. A new thread
+opens in the same project with a link to the bot's thread, which the coding agent
+reads before it starts. Add instructions before you send it.
+
 Each task carries its `projectId`. With it, a bot can read the company's inbox
 with `t3_company_inbox` and `t3_company_message`, and draft replies and posts
 with `t3_company_draft`; you send them from the Company hub. See

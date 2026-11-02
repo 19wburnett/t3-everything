@@ -25,6 +25,8 @@ import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import { AppText as Text } from "../../components/ui/AppText";
 import { SymbolView } from "../../components/ui/AppSymbol";
 import { ControlPill } from "../../components/ui/ControlPill";
+import { useNowMinuteMs } from "../../lib/clock";
+import { relativeTime } from "../../lib/time";
 import { NATIVE_LIQUID_GLASS_SUPPORTED } from "../../native/native-glass";
 import { BrowserPreviewButton } from "../browser/browser-preview-button";
 import { DevicePreviewButton } from "../devices/device-preview-button";
@@ -512,6 +514,16 @@ function FloatingStatusLabel(props: {
       </StatusLabelRow>
     );
   }
+  if (props.status.kind === "hosted-agent") {
+    return (
+      <HostedAgentLabel
+        key="hosted-agent"
+        name={props.status.label}
+        lastSeenAt={props.status.lastSeenAt}
+        onLayout={props.onLayout}
+      />
+    );
+  }
   if (props.status.kind === "preparing") {
     return (
       <StatusLabelRow
@@ -540,6 +552,27 @@ function FloatingStatusLabel(props: {
   }
   return (
     <WorkingDuration key="working" startedAt={props.status.startedAt} onLayout={props.onLayout} />
+  );
+}
+
+function HostedAgentLabel(props: {
+  readonly name: string;
+  readonly lastSeenAt: string | null;
+  readonly onLayout: (event: LayoutChangeEvent) => void;
+}) {
+  const nowMs = useNowMinuteMs();
+  const ago = props.lastSeenAt === null ? null : relativeTime(props.lastSeenAt, nowMs);
+  const label =
+    ago === null
+      ? `Waiting for ${props.name} to check in`
+      : `Waiting for ${props.name} · checked in ${ago === "<1m" ? "just now" : `${ago} ago`}`;
+  return (
+    <StatusLabelRow accessibilityLabel={label} className="gap-2" onLayout={props.onLayout}>
+      <AppActivityIndicator size="small" colorClassName="accent-icon-muted" />
+      <Text className="shrink font-t3-medium text-xs text-foreground" numberOfLines={1}>
+        {label}
+      </Text>
+    </StatusLabelRow>
   );
 }
 

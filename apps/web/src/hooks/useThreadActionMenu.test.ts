@@ -56,6 +56,7 @@ vi.mock("../state/entities", () => ({
     title: "Thread",
     branch: "main",
     worktreePath: null,
+    modelSelection: { instanceId: "codex", model: "gpt-5" },
     runtime: null,
     latestRun: null,
   }),
@@ -106,6 +107,10 @@ vi.mock("../components/Sidebar.snooze", () => ({
 }));
 vi.mock("./useCopyToClipboard", () => ({
   useCopyToClipboard: () => ({ copyToClipboard: () => recordEffect("copy") }),
+}));
+vi.mock("../components/companyHub/useHandOffThread", () => ({
+  readHandOff: () => null,
+  useHandOffThread: () => vi.fn(),
 }));
 vi.mock("./useHandleNewThread", () => ({
   useNewThreadHandler: () => async () => recordEffect("draft"),

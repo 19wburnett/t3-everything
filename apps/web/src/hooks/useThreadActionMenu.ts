@@ -43,6 +43,7 @@ import {
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import { useCopyToClipboard } from "./useCopyToClipboard";
+import { readHandOff, useHandOffThread } from "../components/companyHub/useHandOffThread";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { canTurnThreadIntoProject, useThreadActions } from "./useThreadActions";
@@ -91,6 +92,7 @@ export function useThreadActionMenu(input: {
     reportFailure: false,
   });
   const handleNewThread = useNewThreadHandler();
+  const handOffThread = useHandOffThread();
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
@@ -132,6 +134,13 @@ export function useThreadActionMenu(input: {
       };
       const isRegeneratingTitle = thread.titleRegeneration != null;
       const snoozePresets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
+      const handOffSource = {
+        environmentId: threadRef.environmentId,
+        id: thread.id,
+        projectId: thread.projectId,
+        instanceId: thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId,
+      };
+      const handOff = readHandOff(handOffSource);
       const items = buildThreadActionMenuItems({
         canOperate: readEnvironmentScope(threadRef.environmentId, AuthOrchestrationOperateScope),
         canFind: onFind !== undefined,
@@ -148,6 +157,7 @@ export function useThreadActionMenu(input: {
         snoozePresets,
         canShareWithGuest,
         canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+        ...(handOff ? { handOffTargets: handOff.targets } : {}),
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -160,6 +170,11 @@ export function useThreadActionMenu(input: {
           "Thread action unavailable",
           new Error("This connection cannot change threads."),
         );
+        return;
+      }
+      if (action.startsWith("hand-off:")) {
+        const target = handOff?.targets.find((entry) => action === `hand-off:${entry.provider}`);
+        if (target) void handOffThread({ ...handOffSource, title: thread.title }, target.provider);
         return;
       }
       if (action.startsWith("snooze:")) {

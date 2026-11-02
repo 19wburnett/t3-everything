@@ -739,6 +739,18 @@ function ThreadDetailBody(props: ThreadDetailScreenProps) {
       return { kind: "compacting" };
     }
     if (props.activeWorkStartedAt !== null && contentPresentationKind === "ready") {
+      const hostedAgent = props.serverConfig?.providers.find(
+        (candidate) =>
+          candidate.instanceId === props.selectedThread.modelSelection.instanceId &&
+          candidate.driver === "agentBridge",
+      );
+      if (hostedAgent) {
+        return {
+          kind: "hosted-agent",
+          label: hostedAgent.displayName ?? "the agent",
+          lastSeenAt: hostedAgent.agentLastSeenAt ?? null,
+        };
+      }
       return { kind: "working", startedAt: props.activeWorkStartedAt };
     }
     if (pendingBackgroundWork !== null && contentPresentationKind === "ready") {
