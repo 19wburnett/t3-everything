@@ -156,6 +156,14 @@ needs you. Use the pen button on a folder, or right-click it, to start a thread 
 Pinned threads stay above the folders, and Snoozed and Settled stay below them. In this mode you
 cannot drag threads, and the Working section is off. Each device keeps its own choice.
 
+## See what needs you
+
+**Needs you**, at the bottom of the sidebar or in the command palette, lists
+threads from every project and agent that are waiting on you: approvals,
+questions, guest requests, ready plans, failures, and work that finished since
+you last opened the thread. Finished and failed threads leave the list when you
+open them; the others leave once you answer.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list

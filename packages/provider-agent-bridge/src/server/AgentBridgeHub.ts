@@ -1,12 +1,13 @@
 /**
  * Work waiting for hosted agents that cannot be called, only reached over MCP.
  * The adapter opens a task per running turn; the agent collects it and replies.
- * State is in memory, so tasks do not survive a server restart.
+ * With a store, tasks a restart cut off are kept for the server to reopen.
  *
  * @module provider-agent-bridge/server/AgentBridgeHub
  */
 import {
-  type MessageId,
+  IsoDateTime,
+  MessageId,
   ProviderInstanceId,
   type ProviderTurnId,
   type RuntimeRequestId,
@@ -50,6 +51,11 @@ export interface AgentBridgeTask {
   readonly messages: ReadonlyArray<AgentBridgeMessage>;
 }
 
+export interface AgentBridgeApproval {
+  readonly action: string;
+  readonly reason: string | undefined;
+}
+
 export interface AgentBridgeTurn {
   readonly instanceId: ProviderInstanceId;
   readonly threadId: ThreadId;
@@ -58,15 +64,44 @@ export interface AgentBridgeTurn {
   /** Runs under the hub's lock, so it must not call back into the hub. */
   readonly reply: (input: { readonly text: string; readonly done: boolean }) => Effect.Effect<void>;
   /** Shows an approval card; the user's decision returns to the task as a message. */
-  readonly requestApproval: (input: {
-    readonly action: string;
-    readonly reason: string | undefined;
-  }) => Effect.Effect<RuntimeRequestId>;
+  readonly requestApproval: (input: AgentBridgeApproval) => Effect.Effect<RuntimeRequestId>;
+}
+
+/** The thread's next turn reopens a task saved when a restart cut it off. */
+export const AGENT_BRIDGE_RESUME_MESSAGE_PREFIX = "message:agent-bridge-resume:";
+
+const StoredMessage = Schema.Struct({
+  messageId: MessageId,
+  text: Schema.String,
+  attachmentNames: Schema.Array(Schema.String),
+  createdAt: IsoDateTime,
+});
+
+const StoredTask = Schema.Struct({
+  instanceId: ProviderInstanceId,
+  threadId: ThreadId,
+  unread: Schema.Array(StoredMessage),
+  approvals: Schema.Array(
+    Schema.Struct({ action: Schema.String, reason: Schema.optional(Schema.String) }),
+  ),
+});
+export type AgentBridgeStoredTask = typeof StoredTask.Type;
+
+export const AgentBridgeHubState = Schema.Struct({
+  seenAt: Schema.Record(Schema.String, IsoDateTime),
+  tasks: Schema.Array(StoredTask),
+});
+export type AgentBridgeHubState = typeof AgentBridgeHubState.Type;
+
+export interface AgentBridgeHubStore {
+  readonly load: Effect.Effect<AgentBridgeHubState | undefined>;
+  readonly save: (state: AgentBridgeHubState) => Effect.Effect<void>;
 }
 
 interface OpenTask {
   readonly turn: AgentBridgeTurn;
   readonly unread: Array<AgentBridgeMessage>;
+  readonly approvals: Map<RuntimeRequestId, AgentBridgeApproval>;
 }
 
 export class AgentBridgeHub extends Context.Service<
@@ -91,6 +126,14 @@ export class AgentBridgeHub extends Context.Service<
       readonly providerTurnId: ProviderTurnId;
       readonly message: AgentBridgeMessage;
     }) => Effect.Effect<boolean>;
+    /** Records the user's decision and queues it for the agent; false when the turn ended. */
+    readonly decide: (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly threadId: ThreadId;
+      readonly providerTurnId: ProviderTurnId;
+      readonly requestId: RuntimeRequestId;
+      readonly message: AgentBridgeMessage;
+    }) => Effect.Effect<boolean>;
     /** False when the turn had already ended. */
     readonly close: (input: {
       readonly instanceId: ProviderInstanceId;
@@ -98,6 +141,18 @@ export class AgentBridgeHub extends Context.Service<
       readonly providerTurnId: ProviderTurnId;
       readonly interrupted: boolean;
     }) => Effect.Effect<boolean>;
+    /** The session went away with the turn still open, as on shutdown; the store keeps the task. */
+    readonly detach: (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly threadId: ThreadId;
+      readonly providerTurnId: ProviderTurnId;
+    }) => Effect.Effect<void>;
+    /** Tasks a restart cut off, waiting to be reopened. */
+    readonly detached: Effect.Effect<ReadonlyArray<AgentBridgeStoredTask>>;
+    readonly forgetDetached: (input: {
+      readonly instanceId: ProviderInstanceId;
+      readonly threadId: ThreadId;
+    }) => Effect.Effect<void>;
     /** Returns each open task's unread messages and marks them read. */
     readonly takeInbox: (
       instanceId: ProviderInstanceId,
@@ -124,7 +179,7 @@ export class AgentBridgeHub extends Context.Service<
     readonly lastSeenAt: (
       instanceId: ProviderInstanceId,
     ) => Effect.Effect<DateTime.Utc | undefined>;
-    /** Resolves once the agent for this instance has called the hub. */
+    /** Resolves on the agent's next call to the hub. */
     readonly awaitSeen: (instanceId: ProviderInstanceId) => Effect.Effect<void>;
   }
 >()("@t3tools/provider-agent-bridge/server/AgentBridgeHub") {}
@@ -132,15 +187,56 @@ export class AgentBridgeHub extends Context.Service<
 const keyOf = (instanceId: ProviderInstanceId, threadId: ThreadId) =>
   JSON.stringify([instanceId, threadId]);
 
-const make = Effect.gen(function* () {
+const toStoredMessage = (message: AgentBridgeMessage) => ({
+  messageId: message.messageId,
+  text: message.text,
+  attachmentNames: message.attachmentNames,
+  createdAt: DateTime.formatIso(message.createdAt),
+});
+
+const fromStoredMessage = (message: AgentBridgeStoredTask["unread"][number]) => ({
+  messageId: message.messageId,
+  text: message.text,
+  attachmentNames: message.attachmentNames,
+  createdAt: DateTime.makeUnsafe(message.createdAt),
+});
+
+const make = Effect.fn("AgentBridgeHub.make")(function* (store: AgentBridgeHubStore | undefined) {
   const lock = yield* Semaphore.make(1);
   const tasks = new Map<string, OpenTask>();
   const interrupted = new Set<string>();
   const preloaded = new Map<string, ReadonlyArray<string>>();
   const seenAt = new Map<ProviderInstanceId, DateTime.Utc>();
   const seenSignals = new Map<ProviderInstanceId, Deferred.Deferred<void>>();
+  const detached = new Map<string, AgentBridgeStoredTask>();
+
+  const loaded = store ? yield* store.load : undefined;
+  for (const [instanceId, at] of Object.entries(loaded?.seenAt ?? {})) {
+    seenAt.set(ProviderInstanceId.make(instanceId), DateTime.makeUnsafe(at));
+  }
+  for (const task of loaded?.tasks ?? []) {
+    detached.set(keyOf(task.instanceId, task.threadId), task);
+  }
 
   // Internal helpers share the calling operation's span.
+  const persist = Effect.fnUntraced(function* () {
+    if (!store) return;
+    const open: Array<AgentBridgeStoredTask> = [...tasks.values()].map((task) => ({
+      instanceId: task.turn.instanceId,
+      threadId: task.turn.threadId,
+      unread: task.unread.map(toStoredMessage),
+      approvals: [...task.approvals.values()].map((approval) => ({
+        action: approval.action,
+        ...(approval.reason === undefined ? {} : { reason: approval.reason }),
+      })),
+    }));
+    yield* store.save({
+      seenAt: Object.fromEntries(
+        [...seenAt].map(([instanceId, at]) => [instanceId, DateTime.formatIso(at)]),
+      ),
+      tasks: [...open, ...detached.values()],
+    });
+  });
   const seenSignal = Effect.fnUntraced(function* (instanceId: ProviderInstanceId) {
     const existing = seenSignals.get(instanceId);
     if (existing) return existing;
@@ -150,7 +246,9 @@ const make = Effect.gen(function* () {
   });
   const markSeen = Effect.fnUntraced(function* (instanceId: ProviderInstanceId) {
     seenAt.set(instanceId, yield* DateTime.now);
-    yield* Deferred.succeed(yield* seenSignal(instanceId), undefined);
+    const signal = yield* seenSignal(instanceId);
+    seenSignals.delete(instanceId);
+    yield* Deferred.succeed(signal, undefined);
   });
   const openTask = Effect.fnUntraced(function* (input: {
     readonly instanceId: ProviderInstanceId;
@@ -160,6 +258,7 @@ const make = Effect.gen(function* () {
     const key = keyOf(input.instanceId, input.threadId);
     const task = tasks.get(key);
     if (task) return { key, task };
+    yield* persist();
     return yield* interrupted.has(key)
       ? new AgentBridgeTaskInterruptedError(input)
       : new AgentBridgeNoOpenTaskError(input);
@@ -179,15 +278,31 @@ const make = Effect.gen(function* () {
       const key = keyOf(turn.instanceId, turn.threadId);
       interrupted.delete(key);
       const replies = preloaded.get(key);
-      if (replies === undefined) {
-        tasks.set(key, { turn, unread: [turn.message] });
+      if (replies !== undefined) {
+        preloaded.delete(key);
+        if (replies.length === 0) yield* turn.reply({ text: "", done: true });
+        for (const [index, text] of replies.entries()) {
+          yield* turn.reply({ text, done: index === replies.length - 1 });
+        }
         return;
       }
-      preloaded.delete(key);
-      if (replies.length === 0) yield* turn.reply({ text: "", done: true });
-      for (const [index, text] of replies.entries()) {
-        yield* turn.reply({ text, done: index === replies.length - 1 });
+      const saved = detached.get(key);
+      detached.delete(key);
+      const resuming = turn.message.messageId.startsWith(AGENT_BRIDGE_RESUME_MESSAGE_PREFIX);
+      const task: OpenTask = {
+        turn,
+        unread: [
+          ...(saved?.unread.map(fromStoredMessage) ?? []),
+          ...(resuming ? [] : [turn.message]),
+        ],
+        approvals: new Map(),
+      };
+      tasks.set(key, task);
+      for (const approval of saved?.approvals ?? []) {
+        const restored = { action: approval.action, reason: approval.reason };
+        task.approvals.set(yield* turn.requestApproval(restored), restored);
       }
+      yield* persist();
     }, lock.withPermits(1)),
     preload: Effect.fn("AgentBridgeHub.preload")(function (input) {
       return Effect.sync(() => {
@@ -199,22 +314,50 @@ const make = Effect.gen(function* () {
         preloaded.delete(keyOf(input.instanceId, input.threadId));
       });
     }, lock.withPermits(1)),
-    steer: Effect.fn("AgentBridgeHub.steer")(function (input) {
-      return Effect.sync(() => {
-        const open = current(input);
-        if (!open) return false;
-        open.task.unread.push(input.message);
-        return true;
-      });
+    steer: Effect.fn("AgentBridgeHub.steer")(function* (input) {
+      const open = current(input);
+      if (!open) return false;
+      open.task.unread.push(input.message);
+      yield* persist();
+      return true;
     }, lock.withPermits(1)),
-    close: Effect.fn("AgentBridgeHub.close")(function (input) {
-      return Effect.sync(() => {
-        const open = current(input);
-        if (!open) return false;
-        tasks.delete(open.key);
-        if (input.interrupted) interrupted.add(open.key);
-        return true;
+    decide: Effect.fn("AgentBridgeHub.decide")(function* (input) {
+      const open = current(input);
+      if (!open) return false;
+      open.task.approvals.delete(input.requestId);
+      open.task.unread.push(input.message);
+      yield* persist();
+      return true;
+    }, lock.withPermits(1)),
+    close: Effect.fn("AgentBridgeHub.close")(function* (input) {
+      const open = current(input);
+      if (!open) return false;
+      tasks.delete(open.key);
+      if (input.interrupted) interrupted.add(open.key);
+      yield* persist();
+      return true;
+    }, lock.withPermits(1)),
+    detach: Effect.fn("AgentBridgeHub.detach")(function* (input) {
+      const open = current(input);
+      if (!open) return;
+      tasks.delete(open.key);
+      if (!store) return;
+      // Persist before forgetting: shutdown may not run another save.
+      detached.set(open.key, {
+        instanceId: input.instanceId,
+        threadId: input.threadId,
+        unread: open.task.unread.map(toStoredMessage),
+        approvals: [...open.task.approvals.values()].map((approval) => ({
+          action: approval.action,
+          ...(approval.reason === undefined ? {} : { reason: approval.reason }),
+        })),
       });
+      yield* persist();
+    }, lock.withPermits(1)),
+    detached: Effect.sync(() => [...detached.values()]).pipe(lock.withPermits(1)),
+    forgetDetached: Effect.fn("AgentBridgeHub.forgetDetached")(function* (input) {
+      if (!detached.delete(keyOf(input.instanceId, input.threadId))) return;
+      yield* persist();
     }, lock.withPermits(1)),
     takeInbox: Effect.fn("AgentBridgeHub.takeInbox")(function* (instanceId) {
       yield* markSeen(instanceId);
@@ -223,6 +366,7 @@ const make = Effect.gen(function* () {
         if (turn.instanceId !== instanceId || unread.length === 0) continue;
         inbox.push({ threadId: turn.threadId, messages: unread.splice(0) });
       }
+      yield* persist();
       return inbox;
     }, lock.withPermits(1)),
     reply: Effect.fn("AgentBridgeHub.reply")(function* (input) {
@@ -230,14 +374,15 @@ const make = Effect.gen(function* () {
       const completed = input.done && task.unread.length === 0;
       yield* task.turn.reply({ text: input.text, done: completed });
       if (completed) tasks.delete(key);
+      yield* persist();
       return { completed, unreadMessages: task.unread.length };
     }, lock.withPermits(1)),
     requestApproval: Effect.fn("AgentBridgeHub.requestApproval")(function* (input) {
       const { task } = yield* openTask(input);
-      const requestId = yield* task.turn.requestApproval({
-        action: input.action,
-        reason: input.reason,
-      });
+      const approval = { action: input.action, reason: input.reason };
+      const requestId = yield* task.turn.requestApproval(approval);
+      task.approvals.set(requestId, approval);
+      yield* persist();
       return { requestId };
     }, lock.withPermits(1)),
     lastSeenAt: Effect.fn("AgentBridgeHub.lastSeenAt")(function (instanceId) {
@@ -249,4 +394,7 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(AgentBridgeHub, make);
+export const layer = Layer.effect(AgentBridgeHub, make(undefined));
+
+export const layerWithStore = (store: AgentBridgeHubStore) =>
+  Layer.effect(AgentBridgeHub, make(store));

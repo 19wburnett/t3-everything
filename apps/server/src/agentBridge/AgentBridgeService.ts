@@ -131,7 +131,12 @@ export class AgentBridgeService extends Context.Service<
       readonly title: string | undefined;
       readonly messages: ReadonlyArray<AgentBridgeSharedMessage>;
     }) => Effect.Effect<
-      { readonly threadId: ThreadId; readonly projectId: ProjectId; readonly turns: number },
+      {
+        readonly threadId: ThreadId;
+        readonly projectId: ProjectId;
+        readonly turns: number;
+        readonly tasks: ReadonlyArray<AgentBridgeInboxTask>;
+      },
       AgentBridgeUnknownAgentError | AgentBridgeShareError
     >;
   }
@@ -219,36 +224,42 @@ const make = Effect.gen(function* () {
     return { projectId: shell.projectId, threadId: input.threadId };
   });
 
+  const collectInbox = Effect.fn("AgentBridgeService.collectInbox")(function* (
+    instanceId: ProviderInstanceId,
+  ) {
+    const taken = yield* hub.takeInbox(instanceId);
+    const projectCache = new Map<ProjectId, Effect.Success<ReturnType<typeof readProject>>>();
+    const tasks = yield* Effect.forEach(taken, (task) =>
+      Effect.gen(function* () {
+        const shell = yield* threads
+          .getThreadShell(task.threadId)
+          .pipe(Effect.orElseSucceed(() => null));
+        let project = shell ? projectCache.get(shell.projectId) : undefined;
+        if (shell && !project) {
+          project = yield* readProject(shell.projectId);
+          projectCache.set(shell.projectId, project);
+        }
+        return {
+          threadId: task.threadId,
+          threadTitle: shell?.title ?? null,
+          projectId: shell?.projectId ?? null,
+          project: project?.title ?? null,
+          messages: task.messages.map((message) => ({
+            text: message.text,
+            createdAt: DateTime.formatIso(message.createdAt),
+            attachments: message.attachmentNames,
+          })),
+          brain: project?.brain ?? [],
+        } satisfies AgentBridgeInboxTask;
+      }),
+    );
+    return tasks;
+  });
+
   return AgentBridgeService.of({
     inbox: Effect.fn("AgentBridgeService.inbox")(function* (agent) {
       const instanceId = yield* resolveAgent(agent);
-      const taken = yield* hub.takeInbox(instanceId);
-      const projectCache = new Map<ProjectId, Effect.Success<ReturnType<typeof readProject>>>();
-      const tasks = yield* Effect.forEach(taken, (task) =>
-        Effect.gen(function* () {
-          const shell = yield* threads
-            .getThreadShell(task.threadId)
-            .pipe(Effect.orElseSucceed(() => null));
-          let project = shell ? projectCache.get(shell.projectId) : undefined;
-          if (shell && !project) {
-            project = yield* readProject(shell.projectId);
-            projectCache.set(shell.projectId, project);
-          }
-          return {
-            threadId: task.threadId,
-            threadTitle: shell?.title ?? null,
-            projectId: shell?.projectId ?? null,
-            project: project?.title ?? null,
-            messages: task.messages.map((message) => ({
-              text: message.text,
-              createdAt: DateTime.formatIso(message.createdAt),
-              attachments: message.attachmentNames,
-            })),
-            brain: project?.brain ?? [],
-          } satisfies AgentBridgeInboxTask;
-        }),
-      );
-      return { instructions: INSTRUCTIONS, tasks };
+      return { instructions: INSTRUCTIONS, tasks: yield* collectInbox(instanceId) };
     }),
     reply: Effect.fn("AgentBridgeService.reply")(function* (input) {
       const instanceId = yield* resolveAgent(input.agent);
@@ -332,7 +343,12 @@ const make = Effect.gen(function* () {
           );
         }
       }
-      return { threadId, projectId, turns: exchanges.length };
+      return {
+        threadId,
+        projectId,
+        turns: exchanges.length,
+        tasks: yield* collectInbox(instanceId),
+      };
     }),
   });
 });

@@ -5,6 +5,8 @@ import {
   MessageId,
   ProjectId,
   ProviderInstanceId,
+  ProviderTurnId,
+  RuntimeRequestId,
   ThreadId,
   type OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
@@ -13,6 +15,7 @@ import { makeAgentBridgeAdapterV2 } from "@t3tools/provider-agent-bridge/testing
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -309,4 +312,62 @@ it.effect(
         }).pipe(Effect.provide(layer));
       }),
     ).pipe(Effect.provide(AgentBridgeHub.layer)),
+);
+
+it.effect(
+  "keeps a task cut off by a restart and reopens it with its unread messages and approvals",
+  () =>
+    Effect.gen(function* () {
+      let saved: AgentBridgeHub.AgentBridgeHubState | undefined;
+      const store: AgentBridgeHub.AgentBridgeHubStore = {
+        load: Effect.sync(() => saved),
+        save: (state) =>
+          Effect.sync(() => {
+            saved = state;
+          }),
+      };
+      const shown: Array<string> = [];
+      const turn = (providerTurnId: string, messageId: string): AgentBridgeHub.AgentBridgeTurn => ({
+        instanceId,
+        threadId,
+        providerTurnId: ProviderTurnId.make(providerTurnId),
+        message: {
+          messageId: MessageId.make(messageId),
+          text: "Draft the launch post",
+          attachmentNames: [],
+          createdAt: DateTime.makeUnsafe("2026-11-01T00:00:00Z"),
+        },
+        reply: () => Effect.void,
+        requestApproval: ({ action }) =>
+          Effect.sync(() => {
+            shown.push(action);
+            return RuntimeRequestId.make(`request:${shown.length}`);
+          }),
+      });
+
+      yield* Effect.gen(function* () {
+        const hub = yield* AgentBridgeHub.AgentBridgeHub;
+        yield* hub.open(turn("turn:1", "message:first"));
+        yield* hub.requestApproval({ instanceId, threadId, action: "Send it", reason: undefined });
+        yield* hub.detach({ instanceId, threadId, providerTurnId: ProviderTurnId.make("turn:1") });
+      }).pipe(Effect.provide(AgentBridgeHub.layerWithStore(store)));
+
+      yield* Effect.gen(function* () {
+        const hub = yield* AgentBridgeHub.AgentBridgeHub;
+        assert.isDefined(yield* hub.lastSeenAt(instanceId));
+        assert.deepEqual(
+          (yield* hub.detached).map((task) => [task.threadId, task.unread.length]),
+          [[threadId, 1]],
+        );
+        yield* hub.open(
+          turn("turn:2", `${AgentBridgeHub.AGENT_BRIDGE_RESUME_MESSAGE_PREFIX}${threadId}`),
+        );
+        assert.lengthOf(yield* hub.detached, 0);
+        assert.deepEqual(
+          (yield* hub.takeInbox(instanceId)).flatMap((task) => task.messages.map((m) => m.text)),
+          ["Draft the launch post"],
+        );
+        assert.deepEqual(shown, ["Send it", "Send it"]);
+      }).pipe(Effect.provide(AgentBridgeHub.layerWithStore(store)));
+    }),
 );

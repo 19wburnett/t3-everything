@@ -225,6 +225,8 @@ interface MessagesTimelineProps {
   ) => boolean;
   isWorking: boolean;
   runlessWorkActive?: boolean;
+  hostedAgentName?: string | null;
+  hostedAgentLastSeenAt?: string | null;
   activeTurnStartedAt?: string | null;
   worktreeSetup?: WorktreeSetupSnapshot | null;
   onCancelWorktreeSetup?: () => void;
@@ -338,6 +340,8 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onCiteAssistantText,
   isWorking,
   runlessWorkActive = false,
+  hostedAgentName = null,
+  hostedAgentLastSeenAt = null,
   activeTurnStartedAt = null,
   worktreeSetup = null,
   footer = null,
@@ -1085,6 +1089,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
     awaitingUser: awaitingUser !== null,
     isPreparingWorktree,
     latestRunId: latestRun?.runId ?? null,
+    hostedAgent:
+      hostedAgentName === null
+        ? null
+        : { name: hostedAgentName, lastSeenAt: hostedAgentLastSeenAt },
   };
   // Mounted in both the empty and filled timeline so a thread's first turn
   // starts from a baseline instead of a fresh, silent region.

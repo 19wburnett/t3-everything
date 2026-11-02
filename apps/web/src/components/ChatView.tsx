@@ -3,6 +3,7 @@ import { sourceControlClients } from "@t3tools/client-runtime/source-control-cli
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
 import { queuedRunEditBlockedReason } from "@t3tools/client-runtime/queued-run-edit";
 import { ScrollToEndButton, WorkspaceFileDropOverlay } from "./chat/TimelineOverlays";
+import { AGENT_BRIDGE_DRIVER } from "./companyHub/companyHub.logic";
 import { usePasteToFocusComposer } from "./chat/usePasteToFocusComposer";
 import { announcedRun, isDetailBehindShell } from "./chat/threadActivityAnnouncement";
 import {
@@ -1318,6 +1319,13 @@ export default function ChatView(props: ChatViewProps) {
   const conversationProviderStatus =
     providerStatuses.find((status) => status.instanceId === activeRuntime?.providerInstanceId) ??
     activeProviderStatus;
+  const hostedAgent =
+    conversationProviderStatus?.driver === AGENT_BRIDGE_DRIVER
+      ? {
+          name: conversationProviderStatus.displayName ?? "the agent",
+          lastSeenAt: conversationProviderStatus.agentLastSeenAt ?? null,
+        }
+      : null;
   const supportsConversationRollback =
     canOperateThread &&
     conversationProviderStatus !== null &&
@@ -3412,6 +3420,8 @@ export default function ChatView(props: ChatViewProps) {
                   : {})}
                 isWorking={isWorking}
                 runlessWorkActive={runlessWorkStartedAt !== null}
+                hostedAgentName={hostedAgent?.name ?? null}
+                hostedAgentLastSeenAt={hostedAgent?.lastSeenAt ?? null}
                 isCompacting={isCompacting}
                 awaitingUser={
                   activePendingApproval !== null

@@ -55,6 +55,7 @@ import {
   BugIcon,
   BuildingIcon,
   ChartNoAxesColumnIcon,
+  InboxIcon,
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
@@ -1590,6 +1591,17 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:needs-you",
+    searchTerms: ["needs you", "attention", "approvals", "inbox", "waiting", "failed", "review"],
+    title: "Open Needs you",
+    icon: <InboxIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/needs-you" });
+    },
+  });
 
   actionItems.push({
     kind: "action",

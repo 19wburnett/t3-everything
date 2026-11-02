@@ -444,14 +444,11 @@ export const makeAgentBridgeAdapterV2 = Effect.fn("makeAgentBridgeAdapterV2")(fu
         const turn = active;
         if (!turn) return Effect.void;
         active = undefined;
-        return hub
-          .close({
-            instanceId: options.instanceId,
-            threadId: turn.input.threadId,
-            providerTurnId: turn.providerTurn.id,
-            interrupted: false,
-          })
-          .pipe(Effect.asVoid);
+        return hub.detach({
+          instanceId: options.instanceId,
+          threadId: turn.input.threadId,
+          providerTurnId: turn.providerTurn.id,
+        });
       });
 
       const start = Effect.fnUntraced(function* (
@@ -601,10 +598,11 @@ export const makeAgentBridgeAdapterV2 = Effect.fn("makeAgentBridgeAdapterV2")(fu
               decision,
               ...(args.feedback === undefined ? {} : { feedback: args.feedback }),
             });
-            yield* hub.steer({
+            yield* hub.decide({
               instanceId: options.instanceId,
               threadId: entry.turn.input.threadId,
               providerTurnId: entry.turn.providerTurn.id,
+              requestId: args.requestId,
               message: {
                 messageId: MessageId.make(`approval:${args.requestId}`),
                 text: approvalDecisionText(entry.action, decision, args.feedback),

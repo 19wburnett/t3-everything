@@ -47,10 +47,13 @@ export const agentBridgeSnapshot = Effect.fn("agentBridgeSnapshot")(function* (i
             }
           : {
               status: "ready",
-              message: `${input.agentName} has checked in since T3 Everything started.`,
+              message: `${input.agentName} answers new messages when it checks in.`,
             }),
       },
     }),
+    ...(input.lastSeenAt === undefined
+      ? {}
+      : { agentLastSeenAt: DateTime.formatIso(input.lastSeenAt) }),
     supportsTextGeneration: false,
   };
 });

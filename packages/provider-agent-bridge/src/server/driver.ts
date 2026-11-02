@@ -110,7 +110,9 @@ export const AgentBridgeDriver: ProviderDriver<AgentBridgeSettings, AgentBridgeD
           }),
       ),
     );
-    yield* hub.awaitSeen(instanceId).pipe(Effect.andThen(snapshot.refresh), Effect.forkScoped);
+    yield* hub
+      .awaitSeen(instanceId)
+      .pipe(Effect.andThen(snapshot.refresh), Effect.forever, Effect.forkScoped);
 
     return {
       instanceId,

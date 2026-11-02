@@ -54,6 +54,8 @@ import {
   workEntryIconName,
 } from "./TimelineWorkEntryRow.logic";
 import { formatWorkingTimerNow } from "./TimelineWorkGroupRows.logic";
+import { useNowMinute } from "../../hooks/useNowMinute";
+import { formatRelativeTimeLabel } from "../../timestampFormat";
 
 export const WorkGroupSection = memo(function WorkGroupSection({
   anchorKey,
@@ -276,7 +278,7 @@ function ExpandedWorkGroupEntries({
 const workEntryKey = (entry: TimelineWorkEntry) => entry.id;
 
 export function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
-  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup } =
+  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup, hostedAgent } =
     use(TimelineRowActivityCtx);
   const compacting = row.compacting === true || isCompacting;
   const shimmer = isPreparingWorktree || compacting;
@@ -284,6 +286,8 @@ export function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: 
     "Setting up worktree…"
   ) : compacting ? (
     <CompactingLabel createdAt={row.createdAt} />
+  ) : hostedAgent ? (
+    <HostedAgentWaitingLabel name={hostedAgent.name} lastSeenAt={hostedAgent.lastSeenAt} />
   ) : row.createdAt ? (
     <>
       Working for <WorkingTimer createdAt={row.createdAt} />
@@ -306,6 +310,22 @@ export function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: 
         ) : null}
       </div>
     </div>
+  );
+}
+
+function HostedAgentWaitingLabel({
+  name,
+  lastSeenAt,
+}: {
+  name: string;
+  lastSeenAt: string | null;
+}) {
+  useNowMinute();
+  if (lastSeenAt === null) return <>Waiting for {name} to check in</>;
+  return (
+    <>
+      Waiting for {name} · last checked in {formatRelativeTimeLabel(lastSeenAt)}
+    </>
   );
 }
 

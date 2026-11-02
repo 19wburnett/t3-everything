@@ -107,7 +107,7 @@ it to connect.
    `t3_bridge_inbox` with agent `museBot`. Do each task. Reply with
    `t3_bridge_reply`, and set done when finished." Use `grokBot` for Grok Bot.
    A bot only sees new threads when it checks in, so a shorter schedule
-   answers sooner.
+   answers sooner. A running thread shows when the bot last checked in.
 
 Each message reaches the bot once, together with the project's
 `company/BRAIN.md` and `company/CHANNELS.md` when they exist. Messages you send
@@ -115,9 +115,8 @@ while a thread is running join its open task. Before a bot sends, publishes,
 or pays for something, it can ask with `t3_bridge_request_approval`, and an
 approval card appears in the thread. Approve or Decline it, adding a note if you
 decline. The bot gets your decision the next time it checks in, so keep its
-schedule short for anything waiting on you. A restart of T3 Everything cancels
-open cards. Stop ends
-the task, and the bot's later replies to it are refused.
+schedule short for anything waiting on you. Stop ends the task, and the bot's
+later replies to it are refused.
 
 To see a conversation you had in the bot's own app, ask the bot to share it
 with T3 Code, for example: "Share this conversation to T3 Everything with
@@ -126,14 +125,16 @@ that bot, and the bot does not receive it as new work. The bot gets a thread
 id back; asking it to share again adds only the newer messages to the same
 thread. To copy chats in regularly, add that to the bot's routine. The bot
 decides what to share, so a chat it was not asked to share does not appear.
+Sharing also hands the bot any new messages waiting for it, so a bot that shares
+often answers sooner.
 
 Each task carries its `projectId`. With it, a bot can read the company's inbox
 with `t3_company_inbox` and `t3_company_message`, and draft replies and posts
 with `t3_company_draft`; you send them from the Company hub. See
 [Company channels](./company-channels.md).
 
-Open tasks do not survive a restart of the environment: restarting stops
-running bot threads, so send the message again. To bridge another hosted
+Open tasks survive a restart of the environment: each one reopens in its
+thread with its unread messages and approval cards. To bridge another hosted
 agent, add an **Agent bridge** provider in **Settings → Providers → Add
 provider**. A bot that names an unknown agent is told the valid ids.
 

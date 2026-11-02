@@ -23,34 +23,36 @@ const shared = {
 };
 const agent = TrimmedNonEmptyString.annotate({ description: "Your agent id, e.g. museBot." });
 
+const InboxTasks = Schema.Array(
+  Schema.Struct({
+    threadId: ThreadId,
+    threadTitle: Schema.NullOr(Schema.String),
+    projectId: Schema.NullOr(ProjectId),
+    project: Schema.NullOr(Schema.String),
+    messages: Schema.Array(
+      Schema.Struct({
+        text: Schema.String,
+        createdAt: Schema.String,
+        attachments: Schema.Array(Schema.String),
+      }),
+    ),
+    brain: Schema.Array(
+      Schema.Struct({
+        path: Schema.String,
+        contents: Schema.String,
+        truncated: Schema.Boolean,
+      }),
+    ),
+  }),
+);
+
 const BridgeInboxTool = Tool.make("t3_bridge_inbox", {
   ...shared,
   description: "Collect new user messages for your agent. Each message is returned once.",
   parameters: Schema.Struct({ agent }),
   success: Schema.Struct({
     instructions: Schema.String,
-    tasks: Schema.Array(
-      Schema.Struct({
-        threadId: ThreadId,
-        threadTitle: Schema.NullOr(Schema.String),
-        projectId: Schema.NullOr(ProjectId),
-        project: Schema.NullOr(Schema.String),
-        messages: Schema.Array(
-          Schema.Struct({
-            text: Schema.String,
-            createdAt: Schema.String,
-            attachments: Schema.Array(Schema.String),
-          }),
-        ),
-        brain: Schema.Array(
-          Schema.Struct({
-            path: Schema.String,
-            contents: Schema.String,
-            truncated: Schema.Boolean,
-          }),
-        ),
-      }),
-    ),
+    tasks: InboxTasks,
   }),
 })
   .annotate(Tool.Destructive, false)
@@ -91,7 +93,7 @@ const BridgeRequestApprovalTool = Tool.make("t3_bridge_request_approval", {
 const BridgeShareTool = Tool.make("t3_bridge_share", {
   ...shared,
   description:
-    "Copy a conversation from your own app into a T3 Everything thread so the user sees it there. It is not sent back to you as a task. The first time, pass projectId (from t3_project_list or a task) and title, and keep the returned threadId. After that, pass threadId and only the messages added since the last share.",
+    "Copy a conversation from your own app into a T3 Everything thread so the user sees it there. It is not sent back to you as a task, but any new tasks for you come back in `tasks`, as from t3_bridge_inbox. The first time, pass projectId (from t3_project_list or a task) and title, and keep the returned threadId. After that, pass threadId and only the messages added since the last share.",
   parameters: Schema.Struct({
     agent,
     projectId: Schema.optional(ProjectId),
@@ -106,7 +108,12 @@ const BridgeShareTool = Tool.make("t3_bridge_share", {
       }),
     ),
   }),
-  success: Schema.Struct({ threadId: ThreadId, projectId: ProjectId, turns: Schema.Number }),
+  success: Schema.Struct({
+    threadId: ThreadId,
+    projectId: ProjectId,
+    turns: Schema.Number,
+    tasks: InboxTasks,
+  }),
 })
   .annotate(Tool.Destructive, false)
   .annotate(McpSchema.EnabledWhen, McpInvocationContext.hiddenFromThreads);

@@ -107,6 +107,8 @@ export interface TimelineRowActivityState {
   isPreparingWorktree: boolean;
   latestRunId: RunId | null;
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
+  /** A hosted agent answers only when it checks in, so the thread waits on it. */
+  hostedAgent: { readonly name: string; readonly lastSeenAt: string | null } | null;
 }
 
 export const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);

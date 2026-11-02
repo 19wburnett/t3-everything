@@ -264,6 +264,8 @@ export const ServerProvider = Schema.Struct({
   versionAdvisory: Schema.optionalKey(ServerProviderVersionAdvisory),
   compatibilityAdvisory: Schema.optionalKey(ServerProviderCompatibilityAdvisory),
   updateState: Schema.optionalKey(ServerProviderUpdateState),
+  // Hosted agents answer only when they check in, so clients show how long ago that was.
+  agentLastSeenAt: Schema.optionalKey(IsoDateTime),
 });
 export type ServerProvider = typeof ServerProvider.Type;
 
