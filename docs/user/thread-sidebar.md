@@ -288,6 +288,13 @@ Select a server to open it in the browser panel. **Stop** ends the server's job
 and keeps the agent, the terminal, and T3 Code running. Stop needs terminal
 access to the environment and is not available on Windows.
 
+When the agent does work outside the code, the card's **Work** section lists
+what it touched: email and social drafts in the company outbox, email and
+social connectors, websites it opened in the browser, documents and
+spreadsheets it changed, and the other apps and connectors it used. Select a
+website to open it, or a draft or document to open the file. Threads on Muse or
+Grok Bot also leave out project scripts and local servers.
+
 To choose what the thread details card shows, right-click the card or open
 **Settings → Appearance → Thread details**. Hidden rows keep their keyboard
 shortcuts, such as Open in editor and project scripts. **Reset to default** brings

@@ -3849,6 +3849,7 @@ export default function ChatView(props: ChatViewProps) {
                   projectId={activeThread.projectId}
                   worktreePath={activeThread.worktreePath}
                   isServerThread={isServerThread}
+                  isWorkAgentThread={hostedAgent !== null}
                   {...(draftId ? { draftId } : {})}
                   activeProjectName={activeProject?.title}
                   activeProjectScripts={activeProject ? activeProjectScripts : undefined}
