@@ -226,4 +226,32 @@ The accounts agents work through. Credentials live in each agent's own setup, ne
 -
 `,
   },
+  {
+    relativePath: `${COMPANY_DIR}/DESIGN.md`,
+    contents: `# Design
+
+The brand every page, deck, document and graphic follows.
+
+## Colors
+
+- Primary:
+- Accent:
+- Background:
+- Text:
+
+## Type
+
+- Headings:
+- Body:
+
+## Logo
+
+- File:
+- Clear space and minimum size:
+
+## Look and feel
+
+## Never
+`,
+  },
 ];

@@ -16,6 +16,7 @@ const RIGHT_PANEL_KINDS = [
   "diff",
   "files",
   "file",
+  "design",
   "preview",
   "device",
   "terminal",
@@ -47,6 +48,7 @@ export type RightPanelSurface =
       splitDirection?: "horizontal" | "vertical";
     }
   | { id: "diff"; kind: "diff" }
+  | { id: "design"; kind: "design" }
   | {
       id: "files";
       kind: "files";
@@ -213,6 +215,8 @@ const singletonSurface = (
       return { id: "diff", kind };
     case "files":
       return { id: "files", kind };
+    case "design":
+      return { id: "design", kind };
     case "pull-requests":
       return { id: "pull-requests", kind };
     case "device":
@@ -1042,6 +1046,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             const surfaces = current.surfaces.filter(
               (surface) =>
                 surface.kind !== "files" &&
+                surface.kind !== "design" &&
                 (surface.kind !== "file" || surface.attachment !== undefined),
             );
             if (surfaces.length === current.surfaces.length) return current;

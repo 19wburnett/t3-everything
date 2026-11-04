@@ -69,7 +69,7 @@ export function toShareExchanges(
   }));
 }
 
-const BRAIN_FILES = ["company/BRAIN.md", "company/CHANNELS.md"] as const;
+const BRAIN_FILES = ["company/BRAIN.md", "company/CHANNELS.md", "company/DESIGN.md"] as const;
 const BRAIN_FILE_MAX_CHARS = 8_000;
 const INSTRUCTIONS =
   "Do each task, then post results with t3_bridge_reply (one call per message) and set done: true when the task is finished. Before anything the user should approve, such as sending, publishing, or paying, call t3_bridge_request_approval and leave the task open; the decision arrives here as a message on the same task, starting with Approved or Declined. If you need other input, ask in a reply and set done: true; their answer arrives as a new task.";

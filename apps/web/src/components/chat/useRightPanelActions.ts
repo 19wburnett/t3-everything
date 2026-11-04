@@ -147,6 +147,11 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     useRightPanelStore.getState().open(activeThreadRef, "files");
   };
   const addFilesSurfaceStable = useStableCallback(addFilesSurface);
+  const addDesignSurface = () => {
+    if (!activeThreadRef || !activeProject || !isServerThread) return;
+    useRightPanelStore.getState().open(activeThreadRef, "design");
+  };
+  const addDesignSurfaceStable = useStableCallback(addDesignSurface);
   const addPullRequestsSurface = () => {
     if (!activeThreadRef || !pullRequestsSurfaceAvailable) return;
     useRightPanelStore.getState().open(activeThreadRef, "pull-requests");
@@ -344,6 +349,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     shortcuts,
     activateRightPanelSurfaceStable,
     addDeviceSurfaceStable,
+    addDesignSurfaceStable,
     addDiffSurfaceStable,
     addFilesSurfaceStable,
     addPullRequestSurfaceStable,

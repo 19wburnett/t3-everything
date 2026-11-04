@@ -8,6 +8,12 @@ Agents can place local images in a page by file path. T3 Code embeds them when t
 
 Before publishing, agents check their work with screenshots from a small headless browser that T3 Code keeps for itself; it never uses a browser you installed. The first preview on a machine downloads it once (about 120 MB) into T3 Code's data folder, so that preview can take a minute. Browser tabs on a remote environment use the same browser, so whichever comes first downloads it. Some Linux hosts need [setup](remote-access.md#browser-host-setup) before it can start. Pages publish without it.
 
+## Design tab
+
+For work you keep, such as a landing page, a slide deck, a one-pager, a poster, or a Word or Excel file, open **Design** from the right panel's **+** menu. It lays out every page, image, slide deck and document the thread wrote as artboards, and refreshes as the agent edits them. Select a page or image to view it full size in the tab. Slides, documents, spreadsheets and PDFs open in the Files tab. Design is on web and desktop.
+
+To keep a company's designs on brand, fill in `company/DESIGN.md` with its colors, type, logo, and what to avoid. New companies get the file with the company brain, and Muse and Grok Bot read it with every task. Other agents read it when they use a skill that looks for it.
+
 ## MCP apps
 
 Some MCP servers return an interactive app with their tool results, following the [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) standard. When an agent calls one of those tools, the app appears in the thread in place of the tool call, on web, desktop, and mobile. Codex supports this today, for any MCP server you have configured for it; other providers show these calls as ordinary tool calls.
