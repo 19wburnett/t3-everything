@@ -108,15 +108,14 @@ function readPrompt(params: URLSearchParams): PromptLinkResult<LinkedPrompt | nu
   if (raw.length > PROMPT_LINK_MAX_PROMPT_LENGTH) {
     return {
       ok: false,
-      error: `This prompt is longer than ${PROMPT_LINK_MAX_PROMPT_LENGTH.toLocaleString("en-US")} characters, so T3 Code did not open it.`,
+      error: `This prompt is longer than ${PROMPT_LINK_MAX_PROMPT_LENGTH.toLocaleString("en-US")} characters, so T4 did not open it.`,
     };
   }
   const prompt = sanitizeLinkedPrompt(raw);
   if (prompt.text.length === 0 && prompt.hiddenCharacters > 0) {
     return {
       ok: false,
-      error:
-        "This prompt had only hidden characters, so it may be malicious. T3 Code did not open it.",
+      error: "This prompt had only hidden characters, so it may be malicious. T4 did not open it.",
     };
   }
   return { ok: true, value: prompt.text.length > 0 ? prompt : null };
@@ -132,7 +131,7 @@ export function parseNewThreadLink(search: string): PromptLinkResult<NewThreadLi
   if (pr !== null) {
     const pullRequest = parsePromptLinkPullRequest(pr);
     if (pullRequest === null) {
-      return { ok: false, error: "This link names a pull request T3 Code cannot read." };
+      return { ok: false, error: "This link names a pull request T4 cannot read." };
     }
     return { ok: true, value: { kind: "pull-request", pullRequest, prompt: prompt.value } };
   }
@@ -140,7 +139,7 @@ export function parseNewThreadLink(search: string): PromptLinkResult<NewThreadLi
   const repo = params.get("repo");
   const repository = repo === null ? null : parsePromptLinkRepository(repo);
   if (repo !== null && repository === null) {
-    return { ok: false, error: "This link names a repository T3 Code cannot read." };
+    return { ok: false, error: "This link names a repository T4 cannot read." };
   }
   return {
     ok: true,

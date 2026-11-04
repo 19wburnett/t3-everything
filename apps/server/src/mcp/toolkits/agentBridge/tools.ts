@@ -94,7 +94,7 @@ const BridgeRequestApprovalTool = Tool.make("t3_bridge_request_approval", {
 const BridgeShareTool = Tool.make("t3_bridge_share", {
   ...shared,
   description:
-    "Copy a conversation from your own app into a T3 Everything thread so the user sees it there. It is not sent back to you as a task, but any new tasks for you come back in `tasks`, as from t3_bridge_inbox. The first time, pass projectId (from t3_project_list or a task) and title, and keep the returned threadId. After that, pass threadId and only the messages added since the last share.",
+    "Copy a conversation from your own app into a T4 thread so the user sees it there. It is not sent back to you as a task, but any new tasks for you come back in `tasks`, as from t3_bridge_inbox. The first time, pass projectId (from t3_project_list or a task) and title, and keep the returned threadId. After that, pass threadId and only the messages added since the last share.",
   parameters: Schema.Struct({
     agent,
     projectId: Schema.optional(ProjectId),

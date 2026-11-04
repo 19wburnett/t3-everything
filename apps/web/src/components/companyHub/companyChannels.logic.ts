@@ -16,7 +16,7 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 
 export const COMPANY_CHANNELS_DOCS_URL =
-  "https://github.com/19wburnett/t3-everything/blob/main/docs/user/company-channels.md";
+  "https://github.com/19wburnett/t4/blob/main/docs/user/company-channels.md";
 
 export const CHANNEL_NAMES: Record<CompanyChannelKind, string> = {
   email: "Email",

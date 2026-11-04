@@ -29,7 +29,7 @@ export class AgentBridgeUnknownAgentError extends Schema.TaggedError<AgentBridge
 ) {
   override get message(): string {
     const valid = this.validAgents.length === 0 ? "none" : this.validAgents.join(", ");
-    return `"${this.agent}" is not an agent bridge in T3 Everything. Valid agents: ${valid}.`;
+    return `"${this.agent}" is not an agent bridge in T4. Valid agents: ${valid}.`;
   }
 }
 

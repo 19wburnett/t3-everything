@@ -533,14 +533,14 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
         {
           provider: "github",
           owner: "19wburnett",
-          repo: "t3-everything",
+          repo: "t4",
           releaseType: "release",
         },
       ]);
     }).pipe(
       Effect.provide(
         ConfigProvider.layer(
-          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "19wburnett/t3-everything" } }),
+          ConfigProvider.fromEnv({ env: { GITHUB_REPOSITORY: "19wburnett/t4" } }),
         ),
       ),
     ),

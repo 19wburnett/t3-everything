@@ -13,7 +13,7 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-const APP_DISPLAY_NAME = isDevelopment ? "T3 Everything (Dev)" : "T3 Everything (Beta)";
+const APP_DISPLAY_NAME = isDevelopment ? "T4 (Dev)" : "T4 (Beta)";
 // Mirrors packages/shared/src/appIdentity.ts; this standalone launcher cannot import TypeScript.
 const APP_BUNDLE_ID = isDevelopment
   ? `com.t3everything.desktop.dev.${devBundleIdSuffix || "local"}`
@@ -269,8 +269,8 @@ function resolveMacBundleInfoPlistStrings(executableName) {
     CFBundleExecutable: executableName,
     CFBundleIconFile: "icon.icns",
     NSScreenCaptureUsageDescription:
-      "T3 Code captures the active window when you use the snapshot shortcut.",
-    NSDocumentsFolderUsageDescription: "T3 Code reads project files you open in the desktop app.",
+      "T4 captures the active window when you use the snapshot shortcut.",
+    NSDocumentsFolderUsageDescription: "T4 reads project files you open in the desktop app.",
   };
 }
 

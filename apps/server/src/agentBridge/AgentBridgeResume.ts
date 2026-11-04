@@ -5,7 +5,7 @@ import * as Option from "effect/Option";
 
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 
-const RESUME_TEXT = "T3 Everything restarted. This task is open again.";
+const RESUME_TEXT = "T4 restarted. This task is open again.";
 
 /** Startup recovery cancels every open run; reopen the hosted-agent tasks it cut off. */
 export const resumeDetachedTasks = Effect.fn("AgentBridgeResume.resumeDetachedTasks")(function* () {
@@ -38,7 +38,7 @@ export const resumeDetachedTasks = Effect.fn("AgentBridgeResume.resumeDetachedTa
         notification: {
           source: { kind: "system" },
           outcome: "updated",
-          summary: "T3 Everything restarted and reopened this task",
+          summary: "T4 restarted and reopened this task",
           detail: RESUME_TEXT,
         },
         attachments: [],

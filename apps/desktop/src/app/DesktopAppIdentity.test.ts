@@ -199,9 +199,9 @@ describe("DesktopAppIdentity", () => {
 
         const runtimeName = calls.setName[0];
         assert.isDefined(runtimeName);
-        assert.equal(runtimeName, `T3 Everything ${stage}`);
+        assert.equal(runtimeName, `T4 ${stage}`);
         assert.match(runtimeName.replaceAll(" ", ""), /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/);
-        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, `T3 Everything (${stage})`);
+        assert.equal(calls.setAboutPanelOptions[0]?.applicationName, `T4 (${stage})`);
       }),
       { calls, environment },
     );
