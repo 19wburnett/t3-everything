@@ -292,7 +292,8 @@ When the agent does work outside the code, the card's **Work** section lists
 what it touched: email and social drafts in the company outbox, email and
 social connectors, websites it opened in the browser, documents and
 spreadsheets it changed, and the other apps and connectors it used. Select a
-website to open it, or a draft or document to open the file.
+website or document to open it. Select a draft to review, edit, and send or
+publish it without leaving the thread.
 
 For non-coding work, use a project folder that isn't a git repository, or start
 without a project. The card then leaves out code tools: Open in editor, project

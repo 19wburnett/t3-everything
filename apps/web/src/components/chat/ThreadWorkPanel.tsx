@@ -26,6 +26,7 @@ import { useRightPanelStore } from "~/rightPanelStore";
 import { companyChannelEnvironment } from "~/state/companyChannels";
 import { useQuietThreadVisibleTurnItems } from "~/state/entities";
 import { CompanyChannelIcon } from "../companyHub/CompanyChannelIcon";
+import { CompanyDraftDialog } from "../companyHub/CompanyOutboxSection";
 import { CHANNEL_NAMES, firstLine } from "../companyHub/companyChannels.logic";
 import { toastManager } from "../ui/toast";
 import { ThreadDetailsControl } from "./ThreadDetailsControl";
@@ -96,6 +97,7 @@ function ThreadWorkSection(
   const threadRef = scopeThreadRef(props.environmentId, props.threadId);
   const openLink = useOpenLink(threadRef);
   const { resolvedTheme } = useTheme();
+  const [reviewing, setReviewing] = useState<CompanyDraft | null>(null);
   const draftOf = (item: WorkActivityItem) =>
     item.target._tag === "draft" ? props.drafts?.get(item.target.path) : undefined;
   // Drafts read their channel from the outbox; posts belong under Social.
@@ -115,7 +117,9 @@ function ThreadWorkSection(
         }),
       );
     } else if (target._tag === "file" || target._tag === "draft") {
-      useRightPanelStore.getState().openFile(threadRef, target.path);
+      const draft = draftOf(item);
+      if (draft) setReviewing(draft);
+      else useRightPanelStore.getState().openFile(threadRef, target.path);
     }
   };
 
@@ -201,6 +205,15 @@ function ThreadWorkSection(
           );
         })}
       </div>
+      {reviewing ? (
+        <CompanyDraftDialog
+          key={reviewing.id}
+          environmentId={props.environmentId}
+          projectId={props.projectId}
+          draft={reviewing}
+          onClose={() => setReviewing(null)}
+        />
+      ) : null}
     </ThreadDetailsSection>
   );
 }

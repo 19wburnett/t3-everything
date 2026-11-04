@@ -7,6 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import * as DateTime from "effect/DateTime";
+import { AsyncResult } from "effect/reactivity";
 import { ExternalLinkIcon, PlusIcon, TriangleAlertIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -184,6 +185,31 @@ export function CompanyOutboxSection(
         />
       ) : null}
     </section>
+  );
+}
+
+/** Review, edit and send one draft from outside the hub, such as a thread's Work card. */
+export function CompanyDraftDialog(
+  props: OutboxTarget & { readonly draft: CompanyDraft; readonly onClose: () => void },
+) {
+  const canWrite = useAtomValue(
+    companyChannelEnvironment.saveDraft.permissionAtom(props.environmentId),
+  );
+  const accounts = AsyncResult.getOrElse(
+    useAtomValue(
+      companyChannelEnvironment.accounts({
+        environmentId: props.environmentId,
+        input: { projectId: props.projectId },
+      }),
+    ),
+    () => null,
+  )?.accounts;
+  return (
+    <DraftDialog
+      {...props}
+      account={accounts?.find((account) => account.id === props.draft.account)}
+      canWrite={canWrite}
+    />
   );
 }
 
