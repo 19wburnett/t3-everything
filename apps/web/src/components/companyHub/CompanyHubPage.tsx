@@ -9,8 +9,8 @@ import {
 import { useAtomValue } from "@effect/atom-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AsyncResult } from "effect/reactivity";
-import { BookOpenIcon, PlusIcon, Settings2Icon } from "lucide-react";
-import { useState } from "react";
+import { BookOpenIcon, DownloadIcon, PlusIcon, Settings2Icon } from "lucide-react";
+import { useId, useState } from "react";
 
 import { isElectron } from "~/env";
 import { useProviderEntryByEnvironmentAndInstanceId } from "~/hooks/useProviderEntryByEnvironmentAndInstanceId";
@@ -31,6 +31,7 @@ import { useSettingsProjectGroups } from "../settings/useSettingsProjectGroups";
 import { ThreadRowLeadingStatus } from "../ThreadStatusIndicators";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
+import { Input } from "../ui/input";
 import { SidebarInset } from "../ui/sidebar";
 import {
   WorkspaceBreadcrumb,
@@ -43,12 +44,17 @@ import { channelFailure } from "./companyChannels.logic";
 import { CompanyChannelsSection } from "./CompanyChannelsSection";
 import {
   AGENT_BRIDGE_DRIVER,
+  type BrainSource,
+  brainSourceLabel,
   type BridgeAgent,
+  buildBrainImportPrompt,
   buildWorkTaskPrompt,
   COMPANY_BRAIN_TEMPLATES,
   COMPANY_DIR,
   connectedBridgeAgents,
   groupThreadsByAgent,
+  isStarterBrain,
+  parseBrainSource,
   type WorkTaskTarget,
   WORK_TASK_PRESETS,
 } from "./companyHub.logic";
@@ -159,6 +165,7 @@ function CompanyHubBody({ group }: { group: SidebarProjectSnapshot }) {
         brainLoading={brainResult._tag === "Initial"}
         brainContents={hasCompanyBrain ? brain.contents : null}
         onCreated={() => appAtomRegistry.refresh(brainAtom)}
+        onImport={(prompt) => void startThread(prompt, { kind: "coding", provider: "claude" })}
       />
     </WorkspacePageContainer>
   );
@@ -376,12 +383,13 @@ function CompanyBrain(props: {
   brainLoading: boolean;
   brainContents: string | null;
   onCreated: () => void;
+  onImport: (prompt: string) => void;
 }) {
   const canWriteFiles = useEnvironmentScope(props.environmentId, AuthFilesystemWriteScope);
   const writeCompanyBrain = useWriteCompanyBrain();
   const [creating, setCreating] = useState(false);
 
-  const createBrain = async () => {
+  const createBrain = async (): Promise<boolean> => {
     setCreating(true);
     const written = await writeCompanyBrain({
       environmentId: props.environmentId,
@@ -389,7 +397,19 @@ function CompanyBrain(props: {
     });
     setCreating(false);
     if (written) props.onCreated();
+    return written;
   };
+
+  // The agent fills the starter headings, so a missing brain gets them first.
+  const importBrain = async (source: BrainSource) => {
+    if (props.brainContents === null && !(await createBrain())) return;
+    props.onImport(buildBrainImportPrompt(source));
+  };
+
+  const importForm =
+    props.brainContents === null || isStarterBrain(props.brainContents) ? (
+      <ImportBrainForm disabled={!canWriteFiles || creating} onImport={importBrain} />
+    ) : null;
 
   return (
     <section aria-labelledby="company-hub-brain" className="flex flex-col gap-3">
@@ -400,18 +420,21 @@ function CompanyBrain(props: {
         <span className="text-xs text-muted-foreground">{COMPANY_DIR}/</span>
       </div>
       {props.brainLoading ? null : props.brainContents !== null ? (
-        <div
-          className={cn(
-            "rounded-xl border border-border/60 bg-card px-4 py-3",
-            props.brainContents.trim().length === 0 && "text-muted-foreground",
-          )}
-        >
-          <ChatMarkdown
-            text={props.brainContents}
-            cwd={props.workspaceRoot}
-            environmentId={props.environmentId}
-          />
-        </div>
+        <>
+          {importForm}
+          <div
+            className={cn(
+              "rounded-xl border border-border/60 bg-card px-4 py-3",
+              props.brainContents.trim().length === 0 && "text-muted-foreground",
+            )}
+          >
+            <ChatMarkdown
+              text={props.brainContents}
+              cwd={props.workspaceRoot}
+              environmentId={props.environmentId}
+            />
+          </div>
+        </>
       ) : (
         <div className="rounded-xl border border-dashed border-border/70">
           <Empty>
@@ -431,8 +454,57 @@ function CompanyBrain(props: {
               Create company brain
             </Button>
           </Empty>
+          {importForm}
         </div>
       )}
     </section>
+  );
+}
+
+function ImportBrainForm(props: {
+  disabled: boolean;
+  onImport: (source: BrainSource) => Promise<void>;
+}) {
+  const id = useId();
+  const [value, setValue] = useState("");
+  const source = parseBrainSource(value);
+  const invalid = value.trim().length > 0 && source === null;
+
+  return (
+    <form
+      className="flex flex-col gap-2 rounded-xl border border-border/60 bg-card px-4 py-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (source) void props.onImport(source);
+      }}
+    >
+      <label htmlFor={id} className="text-sm font-medium">
+        Already have a company brain?
+      </label>
+      <div className="flex gap-2">
+        <Input
+          id={id}
+          className="min-w-0 flex-1"
+          size="sm"
+          placeholder="acme.com, github.com/acme/brain, or a Supabase project URL"
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          spellCheck={false}
+          autoComplete="off"
+          aria-invalid={invalid}
+        />
+        <Button type="submit" size="sm" disabled={props.disabled || source === null}>
+          <DownloadIcon aria-hidden />
+          Import
+        </Button>
+      </div>
+      <p className={cn("text-xs", invalid ? "text-destructive" : "text-muted-foreground")}>
+        {invalid
+          ? "Paste a website, a GitHub repo, or a Supabase project URL."
+          : source
+            ? `Claude reads the ${brainSourceLabel(source)} and fills in ${COMPANY_DIR}/. You review the prompt before it starts.`
+            : `Claude reads it and fills in ${COMPANY_DIR}/ for every agent here.`}
+      </p>
+    </form>
   );
 }

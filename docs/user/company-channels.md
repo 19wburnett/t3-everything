@@ -6,6 +6,16 @@ Credentials stay on the environment that runs the company and are never shown
 again after you save them. Saving an account signs in with it first, so a
 mistyped password or token is caught right away.
 
+## Bring an existing company brain
+
+Every agent reads `company/BRAIN.md` and `company/CHANNELS.md` before it works.
+If your company already keeps this somewhere else, paste a website, a GitHub
+repo (`owner/repo` works), or a Supabase project URL into **Already have a
+company brain?** in the Company hub. This opens a Claude thread with the import
+prompt ready to review. Claude reads the source, fills in `company/`, and records
+where the brain came from so it can be refreshed later. Private repos need `gh`
+signed in, and Supabase needs the Supabase MCP server or CLI on that machine.
+
 ## Drafts and sending
 
 Drafts are Markdown files in the company folder's `company/outbox/`, one per

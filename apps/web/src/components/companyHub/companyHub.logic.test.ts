@@ -2,8 +2,12 @@ import { ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  buildBrainImportPrompt,
   buildWorkTaskPrompt,
+  COMPANY_BRAIN_TEMPLATES,
   groupThreadsByAgent,
+  isStarterBrain,
+  parseBrainSource,
   resolveHandOff,
   resolveWorkTaskModelSelection,
   WORK_TASK_PRESETS,
@@ -94,5 +98,56 @@ describe("resolveHandOff", () => {
     });
     expect(resolveHandOff(providers, "claudeAgent")).toBeNull();
     expect(resolveHandOff([provider("museBot", "agentBridge")], "museBot")).toBeNull();
+  });
+});
+
+describe("parseBrainSource", () => {
+  it.each([
+    [
+      "acme/brain",
+      { kind: "github", url: "https://github.com/acme/brain", repository: "acme/brain" },
+    ],
+    [
+      "https://github.com/acme/brain.git",
+      { kind: "github", url: "https://github.com/acme/brain", repository: "acme/brain" },
+    ],
+    [
+      "github.com/acme/acme.github.io/tree/main/docs",
+      {
+        kind: "github",
+        url: "https://github.com/acme/acme.github.io",
+        repository: "acme/acme.github.io",
+      },
+    ],
+    ["github.com/acme", { kind: "website", url: "https://github.com/acme" }],
+    ["abcd1234.supabase.co", { kind: "supabase", url: "https://abcd1234.supabase.co/" }],
+    [
+      "https://supabase.com/dashboard/project/abcd1234",
+      { kind: "supabase", url: "https://supabase.com/dashboard/project/abcd1234" },
+    ],
+    ["acme.com/about", { kind: "website", url: "https://acme.com/about" }],
+  ])("reads %s", (input, expected) => {
+    expect(parseBrainSource(input)).toEqual(expected);
+  });
+
+  it.each(["", "   ", "acme", "ftp://acme.com", "not a url"])("rejects %j", (input) => {
+    expect(parseBrainSource(input)).toBeNull();
+  });
+});
+
+describe("company brain import", () => {
+  it("tells the agent how to read each kind of source and links it back", () => {
+    const prompt = buildBrainImportPrompt(parseBrainSource("acme/brain")!);
+    expect(prompt).toMatch(/^Our company brain lives in the GitHub repository/);
+    expect(prompt).toContain('"## Source" section linking https://github.com/acme/brain');
+    expect(buildBrainImportPrompt(parseBrainSource("abcd.supabase.co")!)).toContain(
+      "change nothing in that project",
+    );
+  });
+
+  it("treats only the untouched starter brain as replaceable", () => {
+    const starter = COMPANY_BRAIN_TEMPLATES[0]!.contents;
+    expect(isStarterBrain(`\n${starter}\n`)).toBe(true);
+    expect(isStarterBrain(`${starter}\nWe sell boats.`)).toBe(false);
   });
 });

@@ -255,3 +255,74 @@ The brand every page, deck, document and graphic follows.
 `,
   },
 ];
+
+export type BrainSource =
+  | { readonly kind: "github"; readonly url: string; readonly repository: string }
+  | { readonly kind: "supabase"; readonly url: string }
+  | { readonly kind: "website"; readonly url: string };
+
+const GITHUB_SHORTHAND = /^[\w.-]+\/[\w.-]+$/;
+
+/** Accepts a site, a GitHub repo (URL or owner/repo), or a Supabase project or dashboard URL. */
+export function parseBrainSource(input: string): BrainSource | null {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return null;
+  if (GITHUB_SHORTHAND.test(trimmed) && !trimmed.split("/")[0]!.includes(".")) {
+    return { kind: "github", url: `https://github.com/${trimmed}`, repository: trimmed };
+  }
+  let url: URL;
+  try {
+    url = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+  } catch {
+    return null;
+  }
+  if ((url.protocol !== "https:" && url.protocol !== "http:") || !url.hostname.includes(".")) {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\./, "");
+  if (host === "github.com") {
+    const [owner, repo] = url.pathname.split("/").filter(Boolean);
+    if (owner && repo) {
+      const repository = `${owner}/${repo.replace(/\.git$/, "")}`;
+      return { kind: "github", url: `https://github.com/${repository}`, repository };
+    }
+  }
+  if (host.endsWith(".supabase.co") || host === "supabase.com" || host.endsWith(".supabase.com")) {
+    return { kind: "supabase", url: url.href };
+  }
+  return { kind: "website", url: url.href };
+}
+
+export function brainSourceLabel(source: BrainSource): string {
+  switch (source.kind) {
+    case "github":
+      return `GitHub repo ${source.repository}`;
+    case "supabase":
+      return "Supabase project";
+    case "website":
+      return `Website ${new URL(source.url).hostname}`;
+  }
+}
+
+/** A coding agent does the import, since it already has git, a browser, and MCP tools like Supabase's. */
+export function buildBrainImportPrompt(source: BrainSource): string {
+  const read = {
+    github: `Our company brain lives in the GitHub repository ${source.url}. Clone it into a temporary directory outside this project (use gh if it is private) and read all of it.`,
+    supabase: `Our company brain lives in the Supabase project at ${source.url}. Use the Supabase MCP tools or CLI to find the tables and storage that describe the company and read them. Only read; change nothing in that project.`,
+    website: `Our company brain is the website ${source.url}. Read it, along with the pages it links to that describe the company, such as about, product, pricing, docs, and blog.`,
+  }[source.kind];
+  return `${read}
+
+Then bring what you learn into ${COMPANY_DIR}/ so every agent here can use it:
+- Fill in ${COMPANY_DIR}/BRAIN.md under its existing headings: what we do, who we sell to, our voice, and what is off limits.
+- Fill in ${COMPANY_DIR}/CHANNELS.md with the email, social, and support accounts you find. Never copy credentials or keys.
+- Save longer reference material worth keeping (positioning, FAQs, pricing, playbooks) as separate Markdown files in ${COMPANY_DIR}/.
+- End BRAIN.md with a "## Source" section linking ${source.url}, so the brain can be refreshed later.
+
+If you can't get access, tell me exactly what you need instead of guessing.`;
+}
+
+/** The starter brain is still untouched, so importing one replaces nothing a person wrote. */
+export function isStarterBrain(contents: string): boolean {
+  return contents.trim() === COMPANY_BRAIN_TEMPLATES[0]!.contents.trim();
+}
