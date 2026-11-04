@@ -292,8 +292,12 @@ When the agent does work outside the code, the card's **Work** section lists
 what it touched: email and social drafts in the company outbox, email and
 social connectors, websites it opened in the browser, documents and
 spreadsheets it changed, and the other apps and connectors it used. Select a
-website to open it, or a draft or document to open the file. Threads on Muse or
-Grok Bot also leave out project scripts and local servers.
+website to open it, or a draft or document to open the file.
+
+For non-coding work, use a project folder that isn't a git repository, or start
+without a project. The card then leaves out code tools: Open in editor, project
+scripts, local servers, and git actions. Threads on Muse or Grok Bot do the
+same. Running `git init` in the folder brings the code tools back.
 
 To choose what the thread details card shows, right-click the card or open
 **Settings → Appearance → Thread details**. Hidden rows keep their keyboard

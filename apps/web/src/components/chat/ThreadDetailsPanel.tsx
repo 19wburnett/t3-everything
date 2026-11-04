@@ -53,8 +53,8 @@ interface ThreadDetailsPanelProps extends Pick<
   projectId: ProjectId;
   worktreePath: string | null;
   isServerThread: boolean;
-  /** Hosted work agents (Muse, Grok Bot) don't run project scripts or local servers. */
-  isWorkAgentThread: boolean;
+  /** Hosted agents and folders outside git get no editor, scripts, servers, or git actions. */
+  isWorkThread: boolean;
   draftId?: DraftId;
   activeProjectName: string | undefined;
   activeProjectScripts: ReadonlyArray<ProjectScript> | undefined;
@@ -154,12 +154,17 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
         // Section flags follow the rows that will render, so no empty section steals the divider rule.
         const show = {
           environment: density === "full" && visible.environment,
-          openIn: density !== "essential" && visible.openIn && props.showOpenInPicker,
+          openIn:
+            density !== "essential" &&
+            visible.openIn &&
+            props.showOpenInPicker &&
+            !props.isWorkThread,
           scripts:
-            visible.scripts && props.activeProjectScripts !== undefined && !props.isWorkAgentThread,
+            visible.scripts && props.activeProjectScripts !== undefined && !props.isWorkThread,
           branch: props.gitCwd !== null && props.isGitRepo && visible.branch,
           git:
             props.gitCwd !== null &&
+            !props.isWorkThread &&
             props.activeProjectName !== undefined &&
             (visible.gitActions || (visible.changes && props.isGitRepo)),
         };
@@ -249,10 +254,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 </ThreadDetailsSection>
               ) : null}
 
-              {density === "full" &&
-              !props.draftId &&
-              visible.servers &&
-              !props.isWorkAgentThread ? (
+              {density === "full" && !props.draftId && visible.servers && !props.isWorkThread ? (
                 <ThreadServersPanel environmentId={props.environmentId} threadId={props.threadId} />
               ) : null}
 
